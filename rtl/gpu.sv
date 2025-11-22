@@ -11,21 +11,19 @@
  * -----
  */
 
-`include "types/vertex_pkg.svh"
-`include "types/mat4x4_pkg.svh"
-`include "types/pixels_pkg.svh"
 `include "types/rendering_pkg.svh"
-import vertex_pkg::*;
-import mat4x4_pkg::*;
-import pixels_pkg::*;
-import rendering_pkg::*;
+`include "types/pixels_pkg.svh"
+`include "types/mat4x4_pkg.svh"
+`include "types/vertex_pkg.svh"
+`include "types/triangle_pkg.svh"
+`include "types/fragment_pkg.svh"
 
 module gpu (
     input  logic          clk_i,
     input  logic          rst_i,
 
     // Input streaming iface
-    output logic          in_valid_o,
+    output logic          in_ready_o,
     input  vertex_t       in_data_i,
     input  logic          in_valid_i,
 
@@ -37,6 +35,13 @@ module gpu (
     output pixel_buffer_t out_data_o,
     output logic          out_valid_o
 );
+  // Imports
+  import rendering_pkg::*;
+  import pixels_pkg::*;
+  import mat4x4_pkg::*;
+  import vertex_pkg::*;
+  import triangle_pkg::*;
+  import fragment_pkg::*;
 
   // Vertex Shader Stage
   logic    vs_out_ready;
@@ -47,7 +52,7 @@ module gpu (
       .clk_i      (clk_i),
       .rst_i      (rst_i),
 
-      .in_valid_o (in_valid_o),
+      .in_ready_o (in_ready_o),
       .in_data_i  (in_data_i),
       .in_valid_i (in_valid_i),
 
@@ -59,7 +64,6 @@ module gpu (
   );
 
   // VS out -> Binner in FIFO
-  logic    vs_binner_empty;
   logic    vs_binner_full;
   vertex_t vs_binner_out_data;
   logic    vs_binner_out_data_valid;
@@ -72,7 +76,7 @@ module gpu (
       .rst_i          (rst_i),
 
       .rd_en_i        (vs_out_ready),
-      .empty_o        (vs_binner_empty),
+      .empty_o        (),
       .rd_data_o      (vs_binner_out_data),
       .rd_data_valid_o(vs_binner_out_data_valid),
 
@@ -108,9 +112,6 @@ module gpu (
   );
 
   // Binner -> raster FIFOs
-  logic      binner_raster_empty         [NUM_BINS_X][NUM_BINS_Y];
-  logic      binner_raster_full          [NUM_BINS_X][NUM_BINS_Y];
-
   triangle_t binner_raster_out_data      [NUM_BINS_X * NUM_BINS_Y];
   logic      binner_raster_out_data_valid[NUM_BINS_X * NUM_BINS_Y];
 
@@ -125,7 +126,6 @@ module gpu (
           binner_raster_y = 0; binner_raster_y < NUM_BINS_Y; binner_raster_y++
       ) begin : gen_binner_raster_fifos_y
         // FIFO between binner and raster unit
-        logic binner_raster_empty;
         logic binner_raster_full;
 
         sync_fifo #(
@@ -136,7 +136,7 @@ module gpu (
             .rst_i          (rst_i),
 
             .rd_en_i        (binner_raster_out_ready[binner_raster_x*NUM_BINS_Y+binner_raster_y]),
-            .empty_o        (binner_raster_empty),
+            .empty_o        (),
             .rd_data_o      (binner_raster_out_data[binner_raster_x*NUM_BINS_Y+binner_raster_y]),
             .rd_data_valid_o(
                 binner_raster_out_data_valid[binner_raster_x * NUM_BINS_Y + binner_raster_y]
@@ -171,7 +171,7 @@ module gpu (
             .rst_i      (rst_i),
 
             // Input iface (from binner FIFOs)
-            .in_valid_o (binner_raster_out_ready[bx*NUM_BINS_Y+by]),
+            .in_ready_o (binner_raster_out_ready[bx*NUM_BINS_Y+by]),
             .in_data_i  (binner_raster_out_data[bx*NUM_BINS_Y+by]),
             .in_valid_i (binner_raster_out_data_valid[bx*NUM_BINS_Y+by]),
 
@@ -199,7 +199,7 @@ module gpu (
             .rst_i      (rst_i),
 
             // input streaming iface
-            .in_valid_o (raster_frag_out_ready[fx*NUM_BINS_Y+fy]),
+            .in_ready_o (raster_frag_out_ready[fx*NUM_BINS_Y+fy]),
             .in_data_i  (raster_frag_out_data[fx*NUM_BINS_Y+fy]),
             .in_valid_i (raster_frag_out_valid[fx*NUM_BINS_Y+fy]),
 
@@ -223,7 +223,7 @@ module gpu (
       .rst_i     (rst_i),
 
       // Input ifaces from raster units
-      .in_valid_o(frag_out_ready),
+      .in_ready_o(frag_out_ready),
       .in_data_i (frag_out_data),
       .in_valid_i(frag_out_valid),
 

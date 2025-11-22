@@ -25,9 +25,7 @@ module sync_fifo #(
     input  logic wr_en_i,
     input  T     wr_data_i,
     output logic full_o
-);
-  localparam int WIDTH = $bits(T);
-  
+);  
   T fifo[DEPTH];
 
   logic [$clog2(DEPTH)-1:0] wr_ptr;

@@ -13,10 +13,6 @@
 `include "types/mat4x4_pkg.svh"
 `include "types/vertex_pkg.svh"
 
-import fixed_point_pkg::*;
-import mat4x4_pkg::*;
-import vertex_pkg::*;
-
 module mat_mult (
     input  logic    clk_i,
     input  logic    rst_i,
@@ -35,6 +31,11 @@ module mat_mult (
     output fixed_t  w_o,
     input  logic    out_vec_ready_i
 );
+  // Imports
+  import fixed_point_pkg::*;
+  import mat4x4_pkg::*;
+  import vertex_pkg::*;
+
   // Dot product function for fixed point vectors
   // This becomes a DSP block in synthesis, so should be efficient
   // However, the Spartan 7 has 120 DSPs so during placement have to see how many matmults we can have

@@ -18,23 +18,34 @@ RTL_FILES="$RTL_DIR/types/*.svh $COMP_DIR/*.sv $STAGES_DIR/*.sv"
 # Include package files if needed
 PKG_FILES="$RTL_DIR/*.sv"
 
+# Warnings to ignore
+IGNORED=(
+    -Wno-WIDTHEXPAND
+    -Wno-WIDTHTRUNC
+    -Wno-PINCONNECTEMPTY
+    -Wno-UNUSEDSIGNAL # Should turn this on later for a check
+)
+
+IGNORED_JOINED=$(IFS=" " ; echo "${IGNORED[*]}")
+
 # Verilate: compile SystemVerilog to C++
+if [ "$1" == "--trace" ]; then
+    TRACE_FLAGS="--trace-fst --trace-max-array 1024"
+else
+    TRACE_FLAGS=""
+fi
+
 verilator -Wall \
-          --cc $TB_DIR/${TOP_TB}.sv $RTL_FILES $PKG_FILES \
-          -I$RTL_DIR \
-          --exe $TB_DIR/${TOP_TB}.cpp \
-          -Mdir $SIM_DIR \
-          --timing \
-          # --trace-fst --trace-max-array 1024 
-          # Uncomment above line to enable tracing
+      --cc $TB_DIR/${TOP_TB}.sv $RTL_FILES $PKG_FILES \
+      -I$RTL_DIR \
+      --exe $TB_DIR/${TOP_TB}.cpp \
+      -Mdir $SIM_DIR \
+      --timing \
+      $TRACE_FLAGS \
+      $IGNORED_JOINED
 
 # Build the simulation executable
 make -C $SIM_DIR -f V${TOP_TB}.mk
 
 # Run the simulation
 $SIM_DIR/V${TOP_TB} +vcd=$WAVE_DIR/${TOP_TB}.vcd
-
-# Open GTKWave for debugging (optional)
-if [ "$1" == "--gtk" ]; then
-    gtkwave $WAVE_DIR/${TOP_TB}.vcd &
-fi

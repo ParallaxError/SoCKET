@@ -12,19 +12,17 @@
  * -----
  */
 
+`include "types/fixed_point_pkg.svh"
 `include "types/vertex_pkg.svh"
 `include "types/mat4x4_pkg.svh"
 `include "types/rendering_pkg.svh"
-import vertex_pkg::*;
-import mat4x4_pkg::*;
-import rendering_pkg::*;
 
 module vertex_shader (
     input  logic    clk_i,
     input  logic    rst_i,
 
     // input streaming iface
-    output logic    in_valid_o,
+    output logic    in_ready_o,
     input  vertex_t in_data_i,
     input  logic    in_valid_i,
 
@@ -36,6 +34,11 @@ module vertex_shader (
     output vertex_t out_data_o,
     output logic    out_valid_o
 );
+  // Imports
+  import fixed_point_pkg::*;
+  import vertex_pkg::*;
+  import mat4x4_pkg::*;
+  import rendering_pkg::*;
 
   // Internal connections
   logic out_mat_valid;
@@ -57,7 +60,7 @@ module vertex_shader (
 
       // Input vector
       .in_vec_valid_i (in_valid_i),
-      .in_vec_ready_o (in_valid_o),
+      .in_vec_ready_o (in_ready_o),
       .in_vec_i       (in_data_i),
 
       // Input matrix

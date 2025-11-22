@@ -14,11 +14,6 @@
 `include "types/triangle_pkg.svh"
 `include "types/rendering_pkg.svh"
 
-import fixed_point_pkg::*;
-import vertex_pkg::*;
-import triangle_pkg::*;
-import rendering_pkg::*;
-
 module binner #(
     parameter int BIN_WIDTH  = 64,
     parameter int BIN_HEIGHT = 64,
@@ -38,6 +33,12 @@ module binner #(
     output triangle_t out_data_o,
     output logic      out_valid_o[NUM_BINS_X][NUM_BINS_Y]
 );
+  // Imports
+  import fixed_point_pkg::*;
+  import vertex_pkg::*;
+  import triangle_pkg::*;
+  import rendering_pkg::*;
+
   // Currently split into 3 phases
   // TODO: Check critical path to divide accordingly
   // TODO: Check for backfacing triangles (signed area negative)
@@ -90,7 +91,8 @@ module binner #(
 
   // Combinatorial logic to determine next state + output logic
   always_comb begin
-    logic all_bins_ready = 1;  // Needed for Done state, can't declare inside case
+    logic all_bins_ready;  // Needed for Done state, can't declare inside case
+    all_bins_ready = 1'b1;
 
     // Default
     next_state = state;
@@ -98,7 +100,8 @@ module binner #(
     // default next_out_data to the current registered output so we only change it
     next_out_data = out_data_reg;
     for (int bx = 0; bx < NUM_BINS_X; bx++)
-    for (int by = 0; by < NUM_BINS_Y; by++) out_valid_o[bx][by] = 0;
+      for (int by = 0; by < NUM_BINS_Y; by++) 
+        out_valid_o[bx][by] = 0;
 
     // Output + next state logic
     case (state)
@@ -109,12 +112,15 @@ module binner #(
         if (in_vert_valid_i && vertex_count == 2) next_state = CalculatingBounds;
       end
       CalculatingBounds: begin
-        // Calculate bounding box of triangle in fixed-point temporaries
-        fixed_t min_x_fp = aggregated_triangle.v0.x;
-        fixed_t max_x_fp = aggregated_triangle.v0.x;
-        fixed_t min_y_fp = aggregated_triangle.v0.y;
-        fixed_t max_y_fp = aggregated_triangle.v0.y;
+        // First set the minimum to vert 0s coords, then we compare against other verts
+        fixed_t min_x_fp, max_x_fp, min_y_fp, max_y_fp;
         int min_x, max_x, min_y, max_y;
+
+        // Calculate bounding box of triangle in fixed-point temporaries
+        min_x_fp = aggregated_triangle.v0.x;
+        max_x_fp = aggregated_triangle.v0.x;
+        min_y_fp = aggregated_triangle.v0.y;
+        max_y_fp = aggregated_triangle.v0.y;
 
         in_vert_ready_o = 0;
 
@@ -145,8 +151,8 @@ module binner #(
         max_y = fixed_point_to_int(max_y_fp);
 
         // If the triangle is completely off-screen, discard it
-        if (next_out_data.max_x < 0 || next_out_data.min_x >= SCREEN_WIDTH ||
-                    next_out_data.max_y < 0 || next_out_data.min_y >= SCREEN_HEIGHT)
+        if ($signed(next_out_data.max_x) < 0 || next_out_data.min_x >= SCREEN_WIDTH ||
+                    $signed(next_out_data.max_y) < 0 || next_out_data.min_y >= SCREEN_HEIGHT)
                 begin
           next_state = Aggregating;
         end else begin
@@ -171,12 +177,17 @@ module binner #(
         // But first, we can only proceed if all target bins are ready
         for (int bx = 0; bx < NUM_BINS_X; bx++) begin
           for (int by = 0; by < NUM_BINS_Y; by++) begin
-            int bin_min_x = bx * BIN_WIDTH;
-            int bin_max_x = bin_min_x + BIN_WIDTH - 1;
-            int bin_min_y = by * BIN_HEIGHT;
-            int bin_max_y = bin_min_y + BIN_HEIGHT - 1;
+            // Locals
+            int bin_min_x, bin_max_x, bin_min_y, bin_max_y;
+            logic overlaps;
 
-            logic overlaps = !(out_data_reg.max_x < bin_min_x || out_data_reg.min_x > bin_max_x ||
+            // Calculate bin bounds
+            bin_min_x = bx * BIN_WIDTH;
+            bin_max_x = bin_min_x + BIN_WIDTH - 1;
+            bin_min_y = by * BIN_HEIGHT;
+            bin_max_y = bin_min_y + BIN_HEIGHT - 1;
+
+            overlaps = !(out_data_reg.max_x < bin_min_x || out_data_reg.min_x > bin_max_x ||
               out_data_reg.max_y < bin_min_y || out_data_reg.min_y > bin_max_y);
 
             if (overlaps && !out_ready_i[bx][by]) all_bins_ready = 0;
@@ -187,12 +198,16 @@ module binner #(
         if (all_bins_ready) begin
           for (int bx = 0; bx < NUM_BINS_X; bx++) begin
             for (int by = 0; by < NUM_BINS_Y; by++) begin
-              int bin_min_x = bx * BIN_WIDTH;
-              int bin_max_x = bin_min_x + BIN_WIDTH - 1;
-              int bin_min_y = by * BIN_HEIGHT;
-              int bin_max_y = bin_min_y + BIN_HEIGHT - 1;
+              int bin_min_x, bin_max_x, bin_min_y, bin_max_y;
+              logic overlaps;
 
-              logic overlaps = !(out_data_reg.max_x < bin_min_x || out_data_reg.min_x > bin_max_x ||
+              // Calculate bin bounds
+              bin_min_x = bx * BIN_WIDTH;
+              bin_max_x = bin_min_x + BIN_WIDTH - 1;
+              bin_min_y = by * BIN_HEIGHT;
+              bin_max_y = bin_min_y + BIN_HEIGHT - 1;
+
+              overlaps = !(out_data_reg.max_x < bin_min_x || out_data_reg.min_x > bin_max_x ||
                   out_data_reg.max_y < bin_min_y || out_data_reg.min_y > bin_max_y);
 
               if (overlaps) out_valid_o[bx][by] = 1;

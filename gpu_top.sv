@@ -40,7 +40,7 @@ module gpu_top ( input  logic        clk,
                  input  logic  [9:0] display_width );
 
 // GPU signals
-logic    in_valid_o;
+logic    in_ready_o;
 vertex_t in_data_i;
 logic    in_valid_i;
 
@@ -65,14 +65,14 @@ end
 
 // GPU instantiation
 GPU gpu_inst (
-  .clk      (clk),
-  .rst      (reset),
+  .clk_i      (clk),
+  .rst_i      (reset),
 
-  .in_valid_o (in_valid_o),
+  .in_ready_o (in_ready_o),
   .in_data_i  (in_data_i),
   .in_valid_i (in_valid_i),
 
-  .in_matrix(input_matrix),
+  .in_matrix_i(input_matrix),
 
   .out_ready_i(out_ready_i),
   .out_data_o (out_data_o),
@@ -89,7 +89,7 @@ begin
   end
   else
   begin
-    if (req && !ack && in_valid_o)
+    if (req && !ack && in_ready_o)
     begin
       // Latch parameters into in data
       in_data_i.x <= r0;
@@ -142,7 +142,7 @@ begin
   end
 end
 
-assign busy      =  !in_valid_o;
+assign busy      =  !in_ready_o;
 assign done      =  out_valid_o;
 
 assign de_rnw    =  1'b0;

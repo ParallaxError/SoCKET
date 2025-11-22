@@ -21,7 +21,7 @@ module sync_fifo_aggregator #(
     input  logic in_valid_i[NUM_INPUTS],
 
     // Per-input ready signals so each producer can be gated independently
-    output logic in_valid_o[NUM_INPUTS],
+    output logic in_ready_o[NUM_INPUTS],
 
     // Output interface
     input  logic out_ready_i,
@@ -55,9 +55,13 @@ module sync_fifo_aggregator #(
     end else begin
       if (!selected_valid) begin
         // find next available valid stream in round-robin order
-        logic found = 0;
+        logic found;
+        found = 0;
+
         for (int i = 0; i < NUM_INPUTS; i++) begin
-          int j = (idx + i) % NUM_INPUTS;
+          int j;
+          j = (idx + i) % NUM_INPUTS;
+
           if (in_valid_i[j]) begin
             selected <= j;
             selected_valid <= 1;
@@ -90,7 +94,7 @@ module sync_fifo_aggregator #(
   genvar gi;
   generate
     for (gi = 0; gi < NUM_INPUTS; gi++) begin : gen_in_ready
-      assign in_valid_o[gi] = (selected_valid && (selected == gi)) ? out_ready_i : 1'b0;
+      assign in_ready_o[gi] = (selected_valid && (selected == gi)) ? out_ready_i : 1'b0;
     end
   endgenerate
 

@@ -21,13 +21,14 @@ package fixed_point_wide_pkg;
 
   function automatic fixed_wide_t from_fixed(fixed_t f);
     fixed_wide_t w;
-    w.value = $signed(f.value);
+    w.value = {{FIXED_WIDTH{f.value[FIXED_WIDTH-1]}}, f.value};
     return w;
   endfunction
 
   function automatic fixed_wide_t from_int(int signed f);
     fixed_wide_t w;
-    w.value = $signed(f) << FIXED_FRAC;
+    // TODO: Surely a better way... ugly
+    w.value = $signed({{FIXED_WIDTH{$signed(f)[FIXED_WIDTH-1]}}, f}) <<< FIXED_FRAC;
     return w;
   endfunction
 
