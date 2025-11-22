@@ -1,7 +1,7 @@
-`include "types/vertex.sv"
-`include "types/fixed_point.sv"
-`include "types/mat4x4.sv"
-`include "types/pixels.sv"
+`include "types/vertex_pkg.svh"
+`include "types/fixed_point_pkg.svh"
+`include "types/mat4x4_pkg.svh"
+`include "types/pixels_pkg.svh"
 import vertex_pkg::*;
 import fixed_point_pkg::*;
 import mat4x4_pkg::*;
@@ -23,7 +23,7 @@ module top_tb();
     vertex_t     in_wr_data;
     logic        in_full;
 
-    SyncFifo#(
+    sync_fifo#(
         .T(vertex_t),
         .DEPTH(16)
     ) input_fifo (
@@ -47,7 +47,7 @@ module top_tb();
     logic               out_rd_data_valid;
     logic               out_full;
 
-    SyncFifo#(
+    sync_fifo#(
         .T(pixel_buffer_t),
         .DEPTH(64)
     ) output_fifo (
@@ -72,7 +72,7 @@ module top_tb();
     // Input matrix
     mat4x4_t mvp;
 
-    GPU gpu_inst (
+    gpu gpu_inst (
         .clk        (clk),
         .rst        (rst),
         

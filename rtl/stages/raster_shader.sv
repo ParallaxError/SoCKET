@@ -1,27 +1,27 @@
 /*
- * @file /rtl/stages/raster.sv
+ * @file /rtl/stages/raster_shader.sv
  * @brief
  * Main raster stage of the GPU pipeline.
  * The raster stage takes in triangles from the binning stage, and rasterizes them into pixel fragments.
  * Fragments are output in pixel buffer format to be fragment shaded, then written to the output FIFO aggregator.
- * 
+ *
  * -----
  * Last Modified: Tuesday, 11th November 2025 8:49 pm
  * -----
  */
 
-`include "types/triangle.sv"
-`include "types/pixels.sv"
-`include "types/fragment.sv"
-`include "types/fixed_point.sv"
-`include "types/fixed_point_wide.sv"
+`include "types/triangle_pkg.svh"
+`include "types/pixels_pkg.svh"
+`include "types/fragment_pkg.svh"
+`include "types/fixed_point_pkg.svh"
+`include "types/fixed_point_wide_pkg.svh"
 import triangle_pkg::*;
 import pixels_pkg::*;
 import fragment_pkg::*;
 import fixed_point_pkg::*;
 import fixed_point_wide_pkg::*;
 
-module RasterShader #(
+module raster_shader #(
     parameter int TOP_LEFT_X     = 0,
     parameter int TOP_LEFT_Y     = 0,
     parameter int PIXELS_PER_CYCLE = 32
@@ -42,46 +42,48 @@ module RasterShader #(
 );
 
     // Helper function for fragment shading, will be deleted later
-    function automatic fragment_t create_fragment(int pixel_x, int pixel_y, logic [7:0] r, logic [7:0] g, logic [7:0] b,
-        fixed_wide_t e0, fixed_wide_t e1, fixed_wide_t e2, fixed_wide_t area);
-        fragment_t frag;
-        fixed_wide_t lambda0, lambda1, lambda2;
-        fixed_wide_t r_wide, g_wide, b_wide;
+    function automatic fragment_t create_fragment(
+        int pixel_x, int pixel_y, logic [7:0] r, logic [7:0] g, logic [7:0] b,
+        fixed_wide_t e0, fixed_wide_t e1, fixed_wide_t e2, fixed_wide_t area
+    );
+      fragment_t frag;
+      fixed_wide_t lambda0, lambda1, lambda2;
+      fixed_wide_t r_wide, g_wide, b_wide;
 
-        int pixel_index;
-        // Initialize to zero
-        frag = '{default: '{default: '0}};
-        // Divide by pixels per word to get x,y in the pixel buffer
-        pixel_index = pixel_x % PIXELS_PER_WORD;
-                
-        frag.x = pixel_x;
-        frag.y = pixel_y;
+      int pixel_index;
+      // Initialize to zero
+      frag = '{default: '{default: '0}};
+      // Divide by pixels per word to get x,y in the pixel buffer
+      pixel_index = pixel_x % PIXELS_PER_WORD;
 
-        // Now, let's try Barycentric coordinates to interpolate colour
-        // First, calculate lambdas as e/area
-        lambda0 = fixed_wide_div(e1, area);
-        lambda1 = fixed_wide_div(e2, area);
-        lambda2 = fixed_wide_div(e0, area);
+      frag.x = pixel_x;
+      frag.y = pixel_y;
 
-        // Next, we (stupidly but fix later) promote the colours to wide fixed point for interpolation and sum them
-        r_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.r), lambda0),
-                                               fixed_wide_mul(from_int(cur_triangle.v1.r), lambda1)),
-                                               fixed_wide_mul(from_int(cur_triangle.v2.r), lambda2));
+      // Now, let's try Barycentric coordinates to interpolate colour
+      // First, calculate lambdas as e/area
+      lambda0 = fixed_wide_div(e1, area);
+      lambda1 = fixed_wide_div(e2, area);
+      lambda2 = fixed_wide_div(e0, area);
 
-        g_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.g), lambda0),
-                                               fixed_wide_mul(from_int(cur_triangle.v1.g), lambda1)),
-                                               fixed_wide_mul(from_int(cur_triangle.v2.g), lambda2));
+      // Next, we (stupidly but fix later) promote the colours to wide fixed point for interpolation and sum them
+      r_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.r), lambda0),
+                                              fixed_wide_mul(from_int(cur_triangle.v1.r), lambda1)),
+                                              fixed_wide_mul(from_int(cur_triangle.v2.r), lambda2));
 
-        b_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.b), lambda0),
-                                               fixed_wide_mul(from_int(cur_triangle.v1.b), lambda1)),
-                                               fixed_wide_mul(from_int(cur_triangle.v2.b), lambda2));
+      g_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.g), lambda0),
+                                              fixed_wide_mul(from_int(cur_triangle.v1.g), lambda1)),
+                                              fixed_wide_mul(from_int(cur_triangle.v2.g), lambda2));
 
-        // Finally, truncate and shift to (5, 6, 5) bits
-        frag.r = to_int8(r_wide);
-        frag.g = to_int8(g_wide);
-        frag.b = to_int8(b_wide);
-        
-        return frag;
+      b_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.b), lambda0),
+                                              fixed_wide_mul(from_int(cur_triangle.v1.b), lambda1)),
+                                              fixed_wide_mul(from_int(cur_triangle.v2.b), lambda2));
+
+      // Finally, truncate and shift to (5, 6, 5) bits
+      frag.r = to_int8(r_wide);
+      frag.g = to_int8(g_wide);
+      frag.b = to_int8(b_wide);
+
+      return frag;
     endfunction
 
     // Current triangle
@@ -129,9 +131,9 @@ module RasterShader #(
     logic [$clog2(SCREEN_WIDTH * SCREEN_HEIGHT):0] cur_index;
     // Each clock edge, we update cur_x and cur_y by this many pixels
     // The combinatorial logic will attempt to process as many pixels as possible per cycle, so this value will be that
-    // value if no pixel is in the triangle (we skip them), or the index of the pixel found in the triangle relative 
+    // value if no pixel is in the triangle (we skip them), or the index of the pixel found in the triangle relative
     // to (cur_x, cur_y)
-    int next_index; 
+    int next_index;
     int last_index;
 
     // Incremental edge function!
@@ -147,15 +149,15 @@ module RasterShader #(
     fixed_wide_t delta_x_e0, delta_y_e0;
     fixed_wide_t delta_x_e1, delta_y_e1;
     fixed_wide_t delta_x_e2, delta_y_e2;
-    
+
     // For edge v0→v1
     assign delta_x_e0 = fixed_wide_sub(y1, y0); // dE/dx = (y0 - y1)
     assign delta_y_e0 = fixed_wide_sub(x0, x1); // dE/dy = (x1 - x0)
-    
+
     // For edge v1 → v2 (E1)
     assign delta_x_e1 = fixed_wide_sub(y2, y1);
     assign delta_y_e1 = fixed_wide_sub(x1, x2);
-    
+
     // For edge v2 → v0 (E2)
     assign delta_x_e2 = fixed_wide_sub(y0, y2);
     assign delta_y_e2 = fixed_wide_sub(x2, x0);
@@ -204,42 +206,61 @@ module RasterShader #(
         else
             begin
                 state <= next_state;
-    
+
             if (state == IDLE && in_valid)
             begin
                 // Start at the maximum of the bin's top-left index and the triangle's bounding-box minimum
                 // Compute as integers to avoid width/signedness surprises
                 top_left_x = (in_data.min_x > TOP_LEFT_X) ? in_data.min_x : TOP_LEFT_X;
                 top_left_y = (in_data.min_y > TOP_LEFT_Y) ? in_data.min_y : TOP_LEFT_Y;
-    
+
                 cur_index <= int'(top_left_x) + int'(top_left_y) * SCREEN_WIDTH;
                 wrap_x <= top_left_x;
-    
+
                 // Now, precompute edge function values at the top-left corner
                 // TODO: Optimise
-                cur_e0 <= edge_function(from_int(top_left_x), from_int(top_left_y), in_data.v0.x, in_data.v0.y, in_data.v1.x, in_data.v1.y);
-                cur_e1 <= edge_function(from_int(top_left_x), from_int(top_left_y), in_data.v1.x, in_data.v1.y, in_data.v2.x, in_data.v2.y);
-                cur_e2 <= edge_function(from_int(top_left_x), from_int(top_left_y), in_data.v2.x, in_data.v2.y, in_data.v0.x, in_data.v0.y);
-    
-                cur_e0_row_start <= edge_function(from_int(top_left_x), from_int(top_left_y), in_data.v0.x, in_data.v0.y, in_data.v1.x, in_data.v1.y);
-                cur_e1_row_start <= edge_function(from_int(top_left_x), from_int(top_left_y), in_data.v1.x, in_data.v1.y, in_data.v2.x, in_data.v2.y);
-                cur_e2_row_start <= edge_function(from_int(top_left_x), from_int(top_left_y), in_data.v2.x, in_data.v2.y, in_data.v0.x, in_data.v0.y);
-    
+                cur_e0 <= edge_function(
+                    from_int(top_left_x), from_int(top_left_y), in_data.v0.x,
+                    in_data.v0.y, in_data.v1.x, in_data.v1.y
+                );
+
+                cur_e1 <= edge_function(
+                    from_int(top_left_x), from_int(top_left_y), in_data.v1.x,
+                    in_data.v1.y, in_data.v2.x, in_data.v2.y
+                );
+                cur_e2 <= edge_function(
+                    from_int(top_left_x), from_int(top_left_y), in_data.v2.x,
+                    in_data.v2.y, in_data.v0.x, in_data.v0.y
+                );
+
+                cur_e0_row_start <= edge_function(
+                    from_int(top_left_x), from_int(top_left_y), in_data.v0.x,
+                    in_data.v0.y, in_data.v1.x, in_data.v1.y
+                );
+                cur_e1_row_start <= edge_function(
+                    from_int(top_left_x), from_int(top_left_y), in_data.v1.x,
+                    in_data.v1.y, in_data.v2.x, in_data.v2.y
+                );
+                cur_e2_row_start <= edge_function(
+                    from_int(top_left_x), from_int(top_left_y), in_data.v2.x,
+                    in_data.v2.y, in_data.v0.x, in_data.v0.y
+                );
+
                 // Finally, compute and latch the minimum index for termination
                 max_index <= in_data.max_x + (in_data.max_y) * SCREEN_WIDTH;
                 if (((TOP_LEFT_X + BIN_WIDTH) + (TOP_LEFT_Y + BIN_HEIGHT) * SCREEN_WIDTH) <=
                      (in_data.max_x + (in_data.max_y) * SCREEN_WIDTH))
                     max_index <= TOP_LEFT_X + (TOP_LEFT_Y + BIN_HEIGHT) * SCREEN_WIDTH;
-    
+
                 cur_triangle <= in_data;
             end
-    
+
             // We can increment the current index if we're processing and either haven't output a pixel yet,
             // or the output pixel has been accepted
             else if (state == PROCESSING && (!out_valid || out_ready))
             begin
                 cur_index <= next_index;
-    
+
                 // Latch the updated edge function values
                 cur_e0 <= next_e0;
                 cur_e1 <= next_e1;
@@ -269,7 +290,9 @@ module RasterShader #(
 
     // Helper: Incremental edge function update
     // Given the previous edge function value at (x, y), compute the edge function at (x + 1, y)
-    function automatic fixed_wide_t edge_function_update(input fixed_wide_t prev, input fixed_wide_t delta);
+    function automatic fixed_wide_t edge_function_update(
+        input fixed_wide_t prev, input fixed_wide_t delta
+    );
         return fixed_wide_add(prev, delta);
     endfunction
 
@@ -327,7 +350,10 @@ module RasterShader #(
                         // (e0.value >= 0 && e1.value >= 0 && e2.value >= 0))
                         0)
                     begin
-                        out_data = create_fragment(candidate % SCREEN_WIDTH, candidate / SCREEN_WIDTH, 8'hFF, 8'hFF, 8'hFF, e0, e1, e2, tri_area);
+                        out_data = create_fragment(
+                            candidate % SCREEN_WIDTH, candidate / SCREEN_WIDTH,
+                            8'hFF, 8'hFF, 8'hFF, e0, e1, e2, tri_area
+                        );
                         out_valid = 1;
                     end
 

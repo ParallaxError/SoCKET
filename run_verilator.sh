@@ -14,7 +14,7 @@ mkdir -p $WAVE_DIR
 # Top-level testbench
 TOP_TB=top_tb
 
-RTL_FILES="$RTL_DIR/types/*.sv $COMP_DIR/*.sv $STAGES_DIR/*.sv"
+RTL_FILES="$RTL_DIR/types/*.svh $COMP_DIR/*.sv $STAGES_DIR/*.sv"
 # Include package files if needed
 PKG_FILES="$RTL_DIR/*.sv"
 
