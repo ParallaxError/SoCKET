@@ -13,6 +13,7 @@ mkdir -p $WAVE_DIR
 
 # Top-level testbench
 TOP_TB=top_tb
+HARNESS_FILES="$TB_DIR/bitmap/bitmap.cpp"
 
 RTL_FILES="$RTL_DIR/types/*.svh $COMP_DIR/*.sv $STAGES_DIR/*.sv"
 # Include package files if needed
@@ -38,7 +39,7 @@ fi
 verilator -Wall \
       --cc $TB_DIR/${TOP_TB}.sv $RTL_FILES $PKG_FILES \
       -I$RTL_DIR \
-      --exe $TB_DIR/${TOP_TB}.cpp \
+      --exe $TB_DIR/${TOP_TB}.cpp $HARNESS_FILES \
       -Mdir $SIM_DIR \
       --timing \
       $TRACE_FLAGS \

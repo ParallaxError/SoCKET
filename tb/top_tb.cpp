@@ -8,6 +8,8 @@
 #include "verilated.h"
 #include "verilated_fst_c.h"
 
+#include "bitmap/bitmap.h"
+
 #define PIXELS 640 /* screen width  */
 #define LINES  480 /* screen height */
 
@@ -44,13 +46,10 @@ int main(int argc, char** argv) {
         main_time++;
     }
 
-     // Write PPM output
-    std::ofstream out("out.ppm", std::ios::binary);
-    out << "P6\n" << PIXELS << " " << LINES << "\n255\n";
-    out.write((const char*)framebuffer, sizeof(framebuffer));
-    out.close();
+     // Write BMP output
+    writeBitmapFile("out.bmp", framebuffer);
 
-    std::cout << "Simulation finished after " << main_time << " time units. Image written to out.ppm\n";
+    std::cout << "Simulation finished after " << main_time << " time units. Image written to out.bmp\n";
 
     delete tb;
 #if VM_TRACE
@@ -63,7 +62,8 @@ extern "C" void writescreen(int R, int G, int B, int x, int y)
 {
     if (x < 0 || x >= PIXELS || y < 0 || y >= LINES) return;
 
-    int idx = (y * PIXELS + x) * 3;
+    // Invert y since (0, 0) in BMP is bottom-left
+    int idx = ((BMP_HEIGHT - 1 - y) * PIXELS + x) * 3;
 
     framebuffer[idx + 0] = std::min(255, std::max(0, R));
     framebuffer[idx + 1] = std::min(255, std::max(0, G));
