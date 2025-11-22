@@ -158,7 +158,7 @@ module top_tb();
           wait (!in_full);
           @(posedge clk); 
 
-          in_wr_data <= test_vertex; 
+          in_wr_data = test_vertex; 
           in_wr_en = 1; 
           @(posedge clk); 
           in_wr_en = 0;

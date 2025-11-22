@@ -316,94 +316,98 @@ module raster_shader #(
       next_state = state;
 
       case (state)
-          Idle:
+        Idle:
+        begin
+            in_ready_o = 1;
+            if (in_valid_i)
+                next_state = Processing;
+        end
+
+        Processing:
+        begin
+          // We process up to PIXELS_PER_CYCLE pixels this cycle, advancing within the tile
+          int          candidate;
+          logic        wrapped; // Flag to indicate if we've wrapped to next row
+          fixed_wide_t e0, e1, e2, e0_row_start, e1_row_start, e2_row_start;
+
+          candidate = cur_index;
+          wrapped   = 0;
+
+          // Incremental edge function values
+          e0 = cur_e0;
+          e1 = cur_e1;
+          e2 = cur_e2;
+
+          // In the case of wrapping, we need to reset the edge function values to the start of the new row
+          // Therefore we store the row-start values, and increment them upon wrapping
+          e0_row_start = cur_e0_row_start;
+          e1_row_start = cur_e1_row_start;
+          e2_row_start = cur_e2_row_start;
+
+          next_index = cur_index; // default to current if nothing processed
+          out_valid_o = 0;
+          for (int step = 0; step < PIXELS_PER_CYCLE && candidate <= max_index; step++)
           begin
-              in_ready_o = 1;
-              if (in_valid_i)
-                  next_state = Processing;
+              // Already found a pixel, stop processing
+              if (out_valid_o)
+                  break;
+
+              // Check if current pixel is inside triangle
+              if ((e0.value >= 0 && e1.value >= 0 && e2.value >= 0) ||
+                  // (e0.value >= 0 && e1.value >= 0 && e2.value >= 0))
+                  0)
+              begin
+                  out_data_o = create_fragment(
+                      candidate % SCREEN_WIDTH, candidate / SCREEN_WIDTH,
+                      8'hFF, 8'hFF, 8'hFF, e0, e1, e2, tri_area
+                  );
+                  out_valid_o = 1;
+              end
+
+              // Advance candidate within tile bounds
+              candidate = tile_next(candidate, wrapped);
+
+              // Now, we need to update the three edge functions
+              // First we need to check if we have wrapped to the next row
+              if (wrapped) begin
+                  // Reset to row-start values and increment by delta_y
+                  e0 = edge_function_update(e0_row_start, delta_y_e0);
+                  e1 = edge_function_update(e1_row_start, delta_y_e1);
+                  e2 = edge_function_update(e2_row_start, delta_y_e2);
+
+                  // Update row-start values for next row
+                  e0_row_start = e0;
+                  e1_row_start = e1;
+                  e2_row_start = e2;
+              end else begin
+                  // Normal increment in x direction
+                  e0 = edge_function_update(e0, delta_x_e0);
+                  e1 = edge_function_update(e1, delta_x_e1);
+                  e2 = edge_function_update(e2, delta_x_e2);
+              end
           end
 
-          Processing:
-          begin
-            // We process up to PIXELS_PER_CYCLE pixels this cycle, advancing within the tile
-            int          candidate;
-            logic        wrapped; // Flag to indicate if we've wrapped to next row
-            fixed_wide_t e0, e1, e2, e0_row_start, e1_row_start, e2_row_start;
+          // Are we done?
+          // Now that we know where we terminate, check if we're done
+          if ((candidate > max_index) && (out_ready_i || !out_valid_o))
+              next_state = Idle;
+          else if (candidate > max_index) begin
+              next_index = max_index; // clamp to end
+          end else
+              next_index = candidate;
 
-            candidate = cur_index;
-            wrapped   = 0;
-
-            // Incremental edge function values
-            e0 = cur_e0;
-            e1 = cur_e1;
-            e2 = cur_e2;
-
-            // In the case of wrapping, we need to reset the edge function values to the start of the new row
-            // Therefore we store the row-start values, and increment them upon wrapping
-            e0_row_start = cur_e0_row_start;
-            e1_row_start = cur_e1_row_start;
-            e2_row_start = cur_e2_row_start;
-
-            next_index = cur_index; // default to current if nothing processed
-            out_valid_o = 0;
-            for (int step = 0; step < PIXELS_PER_CYCLE && candidate <= max_index; step++)
-            begin
-                // Already found a pixel, stop processing
-                if (out_valid_o)
-                    break;
-
-                // Check if current pixel is inside triangle
-                if ((e0.value >= 0 && e1.value >= 0 && e2.value >= 0) ||
-                    // (e0.value >= 0 && e1.value >= 0 && e2.value >= 0))
-                    0)
-                begin
-                    out_data_o = create_fragment(
-                        candidate % SCREEN_WIDTH, candidate / SCREEN_WIDTH,
-                        8'hFF, 8'hFF, 8'hFF, e0, e1, e2, tri_area
-                    );
-                    out_valid_o = 1;
-                end
-
-                // Advance candidate within tile bounds
-                candidate = tile_next(candidate, wrapped);
-
-                // Now, we need to update the three edge functions
-                // First we need to check if we have wrapped to the next row
-                if (wrapped) begin
-                    // Reset to row-start values and increment by delta_y
-                    e0 = edge_function_update(e0_row_start, delta_y_e0);
-                    e1 = edge_function_update(e1_row_start, delta_y_e1);
-                    e2 = edge_function_update(e2_row_start, delta_y_e2);
-
-                    // Update row-start values for next row
-                    e0_row_start = e0;
-                    e1_row_start = e1;
-                    e2_row_start = e2;
-                end else begin
-                    // Normal increment in x direction
-                    e0 = edge_function_update(e0, delta_x_e0);
-                    e1 = edge_function_update(e1, delta_x_e1);
-                    e2 = edge_function_update(e2, delta_x_e2);
-                end
-            end
-
-            // Are we done?
-            // Now that we know where we terminate, check if we're done
-            if ((candidate > max_index) && (out_ready_i || !out_valid_o))
-                next_state = Idle;
-            else if (candidate > max_index) begin
-                next_index = max_index; // clamp to end
-            end else
-                next_index = candidate;
-
-            // Finally, we need to latch the updated edge function values
-            next_e0 = e0;
-            next_e1 = e1;
-            next_e2 = e2;
-            next_e0_row_start = e0_row_start;
-            next_e1_row_start = e1_row_start;
-            next_e2_row_start = e2_row_start;
-          end
+          // Finally, we need to latch the updated edge function values
+          next_e0 = e0;
+          next_e1 = e1;
+          next_e2 = e2;
+          next_e0_row_start = e0_row_start;
+          next_e1_row_start = e1_row_start;
+          next_e2_row_start = e2_row_start;
+        end
+        default:
+        begin
+            next_state = Idle;
+        end
       endcase
   end
 

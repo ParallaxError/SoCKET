@@ -16,8 +16,8 @@
 package fixed_point_pkg;
 
   // Configurable parameters
-  parameter int FIXED_WIDTH = 32;
-  parameter int FIXED_FRAC = 21;
+  parameter int FIXED_WIDTH = 20;
+  parameter int FIXED_FRAC = 9;
 
   typedef struct packed {logic signed [FIXED_WIDTH-1:0] value;} fixed_t;
 

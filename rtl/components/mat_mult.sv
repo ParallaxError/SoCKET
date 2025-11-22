@@ -81,9 +81,7 @@ module mat_mult (
     end
   end
 
-  // Combinatorial logic for state transitions + output logic
-  // Each cycle we populate a row of the output vector with the dot product of the component with the input matrix
-  // For component i, this is simply the summation from j=0-3 of Mat[i][j] * Vector[j]
+  // Combinatorial logic for state transitions
   always_comb begin
     // Next state logic
     if (state == Idle) begin
@@ -108,25 +106,30 @@ module mat_mult (
       next_state = Idle;  // Default case
     end
 
-    // Current state logic:
-    // Because the vector is a packed struct I unfortunately have to write this as a case statement
-    // The w_o component of the input vector is always 1, and is passed through to the output as the signal 'w_o'
-    if (state == Compute) begin
-      out_vec_o.r = in_vec_i.r;
-      out_vec_o.g = in_vec_i.g;
-      out_vec_o.b = in_vec_i.b;
-      case (row_counter)
-        2'b00:   out_vec_o.x = fixed_point_dot_product(in_mat_i.m[0], in_vec_i);
-        2'b01:   out_vec_o.y = fixed_point_dot_product(in_mat_i.m[1], in_vec_i);
-        2'b10:   out_vec_o.z = fixed_point_dot_product(in_mat_i.m[2], in_vec_i);
-        2'b11:   w_o = fixed_point_dot_product(in_mat_i.m[3], in_vec_i);
-        default: ;
-      endcase
-    end
-
     // Control signals
     in_vec_ready_o  = (next_state == Idle);
     out_vec_valid_o = (next_state == Done);
   end
+
+  // Output data logic
+  // Each cycle we populate a row of the output vector with the dot product of the component with the input matrix
+  // For component i, this is simply the summation from j=0-3 of Mat[i][j] * Vector[j]
+  // Because the vector is a packed struct I unfortunately have to write this as a case statement
+  // The w_o component of the input vector is always 1, and is passed through to the output as the signal 'w_o'
+  always_latch begin
+    if (state == Compute) begin
+        out_vec_o.r = in_vec_i.r;
+        out_vec_o.g = in_vec_i.g;
+        out_vec_o.b = in_vec_i.b;
+        case (row_counter)
+            2'b00: out_vec_o.x = fixed_point_dot_product(in_mat_i.m[0], in_vec_i);
+            2'b01: out_vec_o.y = fixed_point_dot_product(in_mat_i.m[1], in_vec_i);
+            2'b10: out_vec_o.z = fixed_point_dot_product(in_mat_i.m[2], in_vec_i);
+            2'b11: w_o = fixed_point_dot_product(in_mat_i.m[3], in_vec_i);
+            default: ;
+        endcase
+    end
+  end
+
 
 endmodule

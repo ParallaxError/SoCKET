@@ -100,7 +100,7 @@ module binner #(
     // default next_out_data to the current registered output so we only change it
     next_out_data = out_data_reg;
     for (int bx = 0; bx < NUM_BINS_X; bx++)
-      for (int by = 0; by < NUM_BINS_Y; by++) 
+      for (int by = 0; by < NUM_BINS_Y; by++)
         out_valid_o[bx][by] = 0;
 
     // Output + next state logic
@@ -218,6 +218,10 @@ module binner #(
         end else
           // Output won't be accepted yet, so gotta stay in Done
           next_state = Done;
+      end
+      default: 
+      begin
+        next_state = Aggregating;
       end
     endcase
   end

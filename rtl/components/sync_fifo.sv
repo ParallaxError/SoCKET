@@ -25,7 +25,7 @@ module sync_fifo #(
     input  logic wr_en_i,
     input  T     wr_data_i,
     output logic full_o
-);  
+); 
   T fifo[DEPTH];
 
   logic [$clog2(DEPTH)-1:0] wr_ptr;
@@ -36,7 +36,7 @@ module sync_fifo #(
   assign full_o  = ((wr_ptr + 1) % DEPTH) == rd_ptr;
 
   // Reading logic
-  always_ff @(posedge clk_i) begin
+  always_ff @(posedge clk_i or posedge rst_i) begin
     if (rst_i) begin
       rd_ptr <= '0;
     end else if (rd_en_i && !empty_o && !rd_data_valid_o) begin
@@ -49,7 +49,7 @@ module sync_fifo #(
   end
 
   // Writing logic
-  always_ff @(posedge clk_i) begin
+  always_ff @(posedge clk_i or posedge rst_i) begin
     if (rst_i) begin
       wr_ptr <= '0;
     end else if (wr_en_i && !full_o) begin
