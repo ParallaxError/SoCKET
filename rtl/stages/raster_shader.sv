@@ -27,18 +27,18 @@ module raster_shader #(
     parameter int PIXELS_PER_CYCLE = 32
 )
 (
-    input  logic            clk,
-    input  logic            rst,
+    input  logic            clk_i,
+    input  logic            rst_i,
 
     // input streaming iface
-    output logic            in_ready,
-    input  triangle_t       in_data,
-    input  logic            in_valid,
+    output logic            in_valid_o,
+    input  triangle_t       in_data_i,
+    input  logic            in_valid_i,
 
     // output streaming iface
-    input  logic            out_ready,
-    output fragment_t       out_data,
-    output logic            out_valid
+    input  logic            out_ready_i,
+    output fragment_t       out_data_o,
+    output logic            out_valid_o
 );
 
     // Helper function for fragment shading, will be deleted later
@@ -123,12 +123,14 @@ module raster_shader #(
     // For now, we output constant colour pixels for every pixel in the triangle
     // Horribly pipelined, but works for now
     typedef enum logic [1:0] {
-        IDLE,
-        PROCESSING
-    } state_t;
+        Idle,
+        Processing
+    } state_e;
 
-    state_t state, next_state;
-    logic [$clog2(SCREEN_WIDTH * SCREEN_HEIGHT):0] cur_index;
+    state_e state, next_state;
+
+    logic [$clog2(SCREEN_WIDTH*SCREEN_HEIGHT):0] cur_index;
+
     // Each clock edge, we update cur_x and cur_y by this many pixels
     // The combinatorial logic will attempt to process as many pixels as possible per cycle, so this value will be that
     // value if no pixel is in the triangle (we skip them), or the index of the pixel found in the triangle relative
@@ -187,7 +189,7 @@ module raster_shader #(
     logic [$clog2(SCREEN_WIDTH * SCREEN_HEIGHT):0] max_index;
 
     // Next state sequential logic
-    always_ff @(posedge clk or posedge rst)
+    always_ff @(posedge clk_i or posedge rst_i)
     begin
         // Locals for max checking
         int top_left_x;
@@ -198,21 +200,21 @@ module raster_shader #(
         fixed_wide_t e1;
         fixed_wide_t e2;
 
-        if (rst)
+        if (rst_i)
         begin
-            state <= IDLE;
+            state <= Idle;
             cur_index <= 0;
         end
         else
             begin
                 state <= next_state;
 
-            if (state == IDLE && in_valid)
+            if (state == Idle && in_valid_i)
             begin
                 // Start at the maximum of the bin's top-left index and the triangle's bounding-box minimum
                 // Compute as integers to avoid width/signedness surprises
-                top_left_x = (in_data.min_x > TOP_LEFT_X) ? in_data.min_x : TOP_LEFT_X;
-                top_left_y = (in_data.min_y > TOP_LEFT_Y) ? in_data.min_y : TOP_LEFT_Y;
+                top_left_x = (in_data_i.min_x > TOP_LEFT_X) ? in_data_i.min_x : TOP_LEFT_X;
+                top_left_y = (in_data_i.min_y > TOP_LEFT_Y) ? in_data_i.min_y : TOP_LEFT_Y;
 
                 cur_index <= int'(top_left_x) + int'(top_left_y) * SCREEN_WIDTH;
                 wrap_x <= top_left_x;
@@ -220,44 +222,44 @@ module raster_shader #(
                 // Now, precompute edge function values at the top-left corner
                 // TODO: Optimise
                 cur_e0 <= edge_function(
-                    from_int(top_left_x), from_int(top_left_y), in_data.v0.x,
-                    in_data.v0.y, in_data.v1.x, in_data.v1.y
+                    from_int(top_left_x), from_int(top_left_y), in_data_i.v0.x,
+                    in_data_i.v0.y, in_data_i.v1.x, in_data_i.v1.y
                 );
 
                 cur_e1 <= edge_function(
-                    from_int(top_left_x), from_int(top_left_y), in_data.v1.x,
-                    in_data.v1.y, in_data.v2.x, in_data.v2.y
+                    from_int(top_left_x), from_int(top_left_y), in_data_i.v1.x,
+                    in_data_i.v1.y, in_data_i.v2.x, in_data_i.v2.y
                 );
                 cur_e2 <= edge_function(
-                    from_int(top_left_x), from_int(top_left_y), in_data.v2.x,
-                    in_data.v2.y, in_data.v0.x, in_data.v0.y
+                    from_int(top_left_x), from_int(top_left_y), in_data_i.v2.x,
+                    in_data_i.v2.y, in_data_i.v0.x, in_data_i.v0.y
                 );
 
                 cur_e0_row_start <= edge_function(
-                    from_int(top_left_x), from_int(top_left_y), in_data.v0.x,
-                    in_data.v0.y, in_data.v1.x, in_data.v1.y
+                    from_int(top_left_x), from_int(top_left_y), in_data_i.v0.x,
+                    in_data_i.v0.y, in_data_i.v1.x, in_data_i.v1.y
                 );
                 cur_e1_row_start <= edge_function(
-                    from_int(top_left_x), from_int(top_left_y), in_data.v1.x,
-                    in_data.v1.y, in_data.v2.x, in_data.v2.y
+                    from_int(top_left_x), from_int(top_left_y), in_data_i.v1.x,
+                    in_data_i.v1.y, in_data_i.v2.x, in_data_i.v2.y
                 );
                 cur_e2_row_start <= edge_function(
-                    from_int(top_left_x), from_int(top_left_y), in_data.v2.x,
-                    in_data.v2.y, in_data.v0.x, in_data.v0.y
+                    from_int(top_left_x), from_int(top_left_y), in_data_i.v2.x,
+                    in_data_i.v2.y, in_data_i.v0.x, in_data_i.v0.y
                 );
 
                 // Finally, compute and latch the minimum index for termination
-                max_index <= in_data.max_x + (in_data.max_y) * SCREEN_WIDTH;
+                max_index <= in_data_i.max_x + (in_data_i.max_y) * SCREEN_WIDTH;
                 if (((TOP_LEFT_X + BIN_WIDTH) + (TOP_LEFT_Y + BIN_HEIGHT) * SCREEN_WIDTH) <=
-                     (in_data.max_x + (in_data.max_y) * SCREEN_WIDTH))
+                     (in_data_i.max_x + (in_data_i.max_y) * SCREEN_WIDTH))
                     max_index <= TOP_LEFT_X + (TOP_LEFT_Y + BIN_HEIGHT) * SCREEN_WIDTH;
 
-                cur_triangle <= in_data;
+                cur_triangle <= in_data_i;
             end
 
             // We can increment the current index if we're processing and either haven't output a pixel yet,
             // or the output pixel has been accepted
-            else if (state == PROCESSING && (!out_valid || out_ready))
+            else if (state == Processing && (!out_valid_o || out_ready_i))
             begin
                 cur_index <= next_index;
 
@@ -273,7 +275,7 @@ module raster_shader #(
     end
 
     // Helper: advance an index by one pixel but wrap within the tile width
-    function automatic int tile_next(input int idx_in, ref bit wrapped);
+    function automatic int tile_next(input int idx_in, ref logic wrapped);
         int cand_x = idx_in % SCREEN_WIDTH;
         int cand_y = idx_in / SCREEN_WIDTH;
         int tile_right = TOP_LEFT_X + BIN_WIDTH; // exclusive right bound
@@ -304,26 +306,26 @@ module raster_shader #(
     always_comb
     begin
         // Defaults
-        in_ready = 0;
-        out_data = '{default: '{default: '0}};
-        out_valid = 0;
+        in_valid_o = 0;
+        out_data_o = '{default: '{default: '0}};
+        out_valid_o = 0;
         next_state = state;
 
         case (state)
-            IDLE:
+            Idle:
             begin
-                in_ready = 1;
-                if (in_valid)
-                    next_state = PROCESSING;
+                in_valid_o = 1;
+                if (in_valid_i)
+                    next_state = Processing;
             end
 
-            PROCESSING:
+            Processing:
             begin
                 // We process up to PIXELS_PER_CYCLE pixels this cycle, advancing within the tile
                 int candidate = cur_index;
 
                 int last_candidate = last_index;
-                bit wrapped; // Flag to indicate if we've wrapped to next row
+                logic wrapped; // Flag to indicate if we've wrapped to next row
 
                 // Incremental edge function values
                 fixed_wide_t e0 = cur_e0;
@@ -337,12 +339,12 @@ module raster_shader #(
                 fixed_wide_t e2_row_start = cur_e2_row_start;
 
                 next_index = cur_index; // default to current if nothing processed
-                out_valid = 0;
+                out_valid_o = 0;
                 // TODO: Bins may be overextending
                 for (int step = 0; step < PIXELS_PER_CYCLE && candidate <= max_index; step++)
                 begin
                     // Already found a pixel, stop processing
-                    if (out_valid)
+                    if (out_valid_o)
                         break;
 
                     // Check if current pixel is inside triangle
@@ -350,11 +352,11 @@ module raster_shader #(
                         // (e0.value >= 0 && e1.value >= 0 && e2.value >= 0))
                         0)
                     begin
-                        out_data = create_fragment(
+                        out_data_o = create_fragment(
                             candidate % SCREEN_WIDTH, candidate / SCREEN_WIDTH,
                             8'hFF, 8'hFF, 8'hFF, e0, e1, e2, tri_area
                         );
-                        out_valid = 1;
+                        out_valid_o = 1;
                     end
 
                     // Advance candidate within tile bounds
@@ -383,8 +385,8 @@ module raster_shader #(
 
                 // Are we done?
                 // Now that we know where we terminate, check if we're done
-                if ((candidate > max_index) && (out_ready || !out_valid))
-                    next_state = IDLE;
+                if ((candidate > max_index) && (out_ready_i || !out_valid_o))
+                    next_state = Idle;
                 else if (candidate > max_index) begin
                     next_index = max_index; // clamp to end
                 end else

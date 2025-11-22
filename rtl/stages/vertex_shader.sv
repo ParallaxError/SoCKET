@@ -20,21 +20,21 @@ import mat4x4_pkg::*;
 import rendering_pkg::*;
 
 module vertex_shader (
-    input logic clk,
-    input logic rst,
+    input  logic    clk_i,
+    input  logic    rst_i,
 
     // input streaming iface
-    output logic    in_ready,
-    input  vertex_t in_data,
-    input  logic    in_valid,
+    output logic    in_valid_o,
+    input  vertex_t in_data_i,
+    input  logic    in_valid_i,
 
     // Input matrix
-    input mat4x4_t in_matrix,
+    input  mat4x4_t in_matrix_i,
 
     // output streaming iface
-    input  logic    out_ready,
-    output vertex_t out_data,
-    output logic    out_valid
+    input  logic    out_ready_i,
+    output vertex_t out_data_o,
+    output logic    out_valid_o
 );
 
   // Internal connections
@@ -52,26 +52,26 @@ module vertex_shader (
 
   // Matrix multiplication unit
   mat_mult mat_mult_inst (
-      .clk(clk),
-      .rst(rst),
+      .clk_i          (clk_i),
+      .rst_i          (rst_i),
 
       // Input vector
-      .in_vec_valid(in_valid),
-      .in_vec_ready(in_ready),
-      .in_vec      (in_data),
+      .in_vec_valid_i (in_valid_i),
+      .in_vec_ready_o (in_valid_o),
+      .in_vec_i       (in_data_i),
 
       // Input matrix
-      .in_mat(in_matrix),
+      .in_mat_i       (in_matrix_i),
 
       // Output vector
-      .out_vec_valid(out_mat_valid),
-      .out_vec      (out_mat_data),
-      .w            (out_mat_w),
-      .out_vec_ready(out_mat_ready)
+      .out_vec_valid_o(out_mat_valid),
+      .out_vec_o      (out_mat_data),
+      .w_o            (out_mat_w),
+      .out_vec_ready_i(out_mat_ready)
   );
 
-  always_ff @(posedge clk or posedge rst) begin
-    if (rst) begin
+  always_ff @(posedge clk_i or posedge rst_i) begin
+    if (rst_i) begin
       div_valid <= 1'b0;
       div_ready <= 1'b1;
     end else if (out_mat_valid && out_mat_ready) begin
@@ -79,34 +79,30 @@ module vertex_shader (
       // x' = x / w, y' = y / w, z' = z / w
       // Here we assume w is non-zero; in a full implementation, should handle w=0 case
       // Also multiply with screen size to get screen coordinates
-      out_data.x.value <= fixed_point_mult(
+      out_data_o.x.value <= fixed_point_mult(
           fixed_point_div(out_mat_data.x.value, out_mat_w), from_real(rendering_pkg::SCREEN_WIDTH)
       );
       // TODO Shorten
-      out_data.y.value <= fixed_point_sub(
-          from_real(
-              real'(SCREEN_HEIGHT)
-          ),
+      out_data_o.y.value <= fixed_point_sub(
+          from_real(real'(SCREEN_HEIGHT)),
           fixed_point_mult(
-              fixed_point_div(
-                  out_mat_data.y.value, out_mat_w
-              ),
-              from_real(
-                  rendering_pkg::SCREEN_HEIGHT))
+              fixed_point_div(out_mat_data.y.value, out_mat_w),
+              from_real(rendering_pkg::SCREEN_HEIGHT)
+          )
       );
-      out_data.z.value <= fixed_point_div(out_mat_data.z.value, out_mat_w);
-      out_data.r <= out_mat_data.r;
-      out_data.g <= out_mat_data.g;
-      out_data.b <= out_mat_data.b;
+      out_data_o.z.value <= fixed_point_div(out_mat_data.z.value, out_mat_w);
+      out_data_o.r <= out_mat_data.r;
+      out_data_o.g <= out_mat_data.g;
+      out_data_o.b <= out_mat_data.b;
       div_valid <= 1'b1;
-      div_ready <= out_ready;  // Div can accept new input if consumer will accept next cycle
-    end else if (div_valid && out_ready) begin
+      div_ready <= out_ready_i;  // Div can accept new input if consumer will accept next cycle
+    end else if (div_valid && out_ready_i) begin
       div_valid <= 1'b0;
       div_ready <= 1'b1;
     end
   end
 
   // output signals
-  assign out_valid = div_valid;
+  assign out_valid_o = div_valid;
 
 endmodule

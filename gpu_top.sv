@@ -40,111 +40,111 @@ module gpu_top ( input  logic        clk,
                  input  logic  [9:0] display_width );
 
 // GPU signals
-logic in_ready;
-vertex_t in_data;
-logic in_valid;
+logic    in_valid_o;
+vertex_t in_data_i;
+logic    in_valid_i;
 
 mat4x4_t input_matrix;
 
-logic out_ready;
-pixel_buffer_t out_data;
-logic out_valid;
+logic          out_ready_i;
+pixel_buffer_t out_data_o;
+logic          out_valid_o;
 
 // Input matrix set to identity for now
 initial begin
-    for (int x = 0; x < 4; x++) begin
-        for (int y = 0; y < 4; y++) begin
-            if (x == y) begin
-                input_matrix.m[x][y] = from_real(1.0); // 1.0 in fixed-point
-            end else begin
-                input_matrix.m[x][y] = from_real(0.0); // 0.0 in fixed-point
-            end
-        end
+  for (int x = 0; x < 4; x++) begin
+    for (int y = 0; y < 4; y++) begin
+      if (x == y) begin
+          input_matrix.m[x][y] = from_real(1.0); // 1.0 in fixed-point
+      end else begin
+          input_matrix.m[x][y] = from_real(0.0); // 0.0 in fixed-point
+      end
     end
+  end
 end
 
 // GPU instantiation
 GPU gpu_inst (
-    .clk            (clk),
-    .rst            (reset),
+  .clk      (clk),
+  .rst      (reset),
 
-    .in_ready       (in_ready),
-    .in_data        (in_data),
-    .in_valid       (in_valid),
+  .in_valid_o (in_valid_o),
+  .in_data_i  (in_data_i),
+  .in_valid_i (in_valid_i),
 
-    .in_matrix      (input_matrix),
+  .in_matrix(input_matrix),
 
-    .out_ready      (out_ready),
-    .out_data       (out_data),
-    .out_valid      (out_valid)
+  .out_ready_i(out_ready_i),
+  .out_data_o (out_data_o),
+  .out_valid_o(out_valid_o)
 );
 
 // Input data handling
 always_ff @ (posedge clk or posedge reset)
 begin
-    if (reset)
+  if (reset)
+  begin
+    ack         <= 1'b0;
+    in_valid_i    <= 1'b0;
+  end
+  else
+  begin
+    if (req && !ack && in_valid_o)
     begin
-        ack         <= 1'b0;
-        in_valid    <= 1'b0;
+      // Latch parameters into in data
+      in_data_i.x <= r0;
+      in_data_i.y <= r1;
+      in_data_i.z <= r2;
+      in_data_i.r <= r3[7:0];
+      in_data_i.g <= r4[7:0];
+      in_data_i.b <= r5[7:0];
+
+      in_valid_i  <= 1'b1;
+      ack       <= 1'b1;
     end
     else
     begin
-        if (req && !ack && in_ready)
-        begin
-            // Latch parameters into in data
-            in_data.x <= r0;
-            in_data.y <= r1;
-            in_data.z <= r2;
-            in_data.r <= r3[7:0];
-            in_data.g <= r4[7:0];
-            in_data.b <= r5[7:0];
-
-            in_valid  <= 1'b1;
-            ack       <= 1'b1;
-        end
-        else
-        begin
-            ack       <= 1'b0;
-            in_valid  <= 1'b0;
-        end
+      ack       <= 1'b0;
+      in_valid_i  <= 1'b0;
     end
+  end
 end
 
 // Output data handling
 always_ff @ (posedge clk or posedge reset)
 begin
-    if (reset)
+  if (reset)
+  begin
+    out_ready_i   <= 1'b1;
+    de_req      <= 1'b0;
+  end
+  else
+  begin
+    if (out_valid_o && !de_req)
     begin
-        out_ready   <= 1'b1;
-        de_req      <= 1'b0;
+      // Latch output data
+      de_addr   <= (out_data_o.y * SCREEN_WIDTH) + out_data_o.x;
+      for (int i = 0; i < PIXELS_PER_WORD; i++)
+      begin
+          de_w_data[((i + 1)*8) -: 8] <= out_data_o.pixels[i];
+      end
+
+      de_nbyte <= ~out_data_o.valid_pixels;
+
+      out_ready_i <= 1'b0;
+      de_req    <= 1'b1;
     end
-    else
+    else if (de_ack)
     begin
-        if (out_valid && !de_req)
-        begin
-            // Latch output data
-            de_addr   <= (out_data.y * SCREEN_WIDTH) + out_data.x;
-            for (int i = 0; i < PIXELS_PER_WORD; i++)
-            begin
-                de_w_data[((i + 1)*8) -: 8] <= out_data.pixels[i];
-            end
-
-            de_nbyte <= ~out_data.valid_pixels;
-
-            out_ready <= 1'b0;
-            de_req    <= 1'b1;
-        end
-        else if (de_ack)
-        begin
-            de_req    <= 1'b0;
-            out_ready <= 1'b1;
-        end
+      de_req    <= 1'b0;
+      out_ready_i <= 1'b1;
     end
+  end
 end
 
-assign busy      =  !in_ready;           
-assign done      =  out_valid;                 /* Dummy unit is 'done' immediately; */
-                                         /*      (Not the general case!)      */
-assign de_rnw    =  1'b0;                /* Read 'safer' than write           */
+assign busy      =  !in_valid_o;
+assign done      =  out_valid_o;
+
+assign de_rnw    =  1'b0;
 
 endmodule

@@ -25,58 +25,61 @@ module binner #(
     parameter int NUM_BINS_X = SCREEN_WIDTH / BIN_WIDTH,
     parameter int NUM_BINS_Y = SCREEN_HEIGHT / BIN_HEIGHT
 ) (
-    input logic clk,
-    input logic rst,
+    input  logic      clk_i,
+    input  logic      rst_i,
 
     // input streaming iface
-    output logic    in_vert_ready,
-    input  vertex_t in_vert_data,
-    input  logic    in_vert_valid,
+    output logic      in_vert_ready_o,
+    input  vertex_t   in_vert_data_i,
+    input  logic      in_vert_valid_i,
 
     // output streaming iface
-    input  logic      out_ready[NUM_BINS_X][NUM_BINS_Y],
-    output triangle_t out_data,
-    output logic      out_valid[NUM_BINS_X][NUM_BINS_Y]
+    input  logic      out_ready_i[NUM_BINS_X][NUM_BINS_Y],
+    output triangle_t out_data_o,
+    output logic      out_valid_o[NUM_BINS_X][NUM_BINS_Y]
 );
   // Currently split into 3 phases
   // TODO: Check critical path to divide accordingly
   // TODO: Check for backfacing triangles (signed area negative)
   typedef enum logic [1:0] {
-    AGGREGATING,
-    CALCULATING_BOUNDS,
-    DONE
-  } state_t;
+    Aggregating,
+    CalculatingBounds,
+    Done
+  } state_e;
 
-  state_t state, next_state;
-  int vertex_count;
+  state_e    state, next_state;
+
+  int        vertex_count;
   triangle_t aggregated_triangle;
-  // Registered output that persists between CALCULATING_BOUNDS and DONE
+
+  // Registered output that persists between CalculatingBounds and Done
   triangle_t out_data_reg;
-  // Combinational next value for out_data_reg (computed during CALCULATING_BOUNDS)
+
+  // Combinational next value for out_data_reg (computed during CalculatingBounds)
   triangle_t next_out_data;
 
   // Next state sequential logic
-  always_ff @(posedge clk or posedge rst) begin
-    if (rst) begin
-      state <= AGGREGATING;
+  always_ff @(posedge clk_i or posedge rst_i) begin
+    if (rst_i) begin
+      state <= Aggregating;
       vertex_count <= 0;
       out_data_reg <= '{default: '0};
     end else begin
-      if (state == AGGREGATING && in_vert_valid) begin
+      if (state == Aggregating && in_vert_valid_i) begin
         case (vertex_count)
-          0: aggregated_triangle.v0 <= in_vert_data;
-          1: aggregated_triangle.v1 <= in_vert_data;
-          2: aggregated_triangle.v2 <= in_vert_data;
+          0: aggregated_triangle.v0 <= in_vert_data_i;
+          1: aggregated_triangle.v1 <= in_vert_data_i;
+          2: aggregated_triangle.v2 <= in_vert_data_i;
         endcase
 
         vertex_count <= vertex_count + 1;
       end
 
       // Reset vert count before next triangle
-      if (state == DONE && next_state == AGGREGATING) vertex_count <= 0;
+      if (state == Done && next_state == Aggregating) vertex_count <= 0;
 
-      // Latch computed triangle when we transition to DONE from CALCULATING_BOUNDS
-      if (state == CALCULATING_BOUNDS && next_state == DONE) begin
+      // Latch computed triangle when we transition to Done from CalculatingBounds
+      if (state == CalculatingBounds && next_state == Done) begin
         out_data_reg <= next_out_data;
       end
 
@@ -87,25 +90,25 @@ module binner #(
 
   // Combinatorial logic to determine next state + output logic
   always_comb begin
-    logic all_bins_ready = 1;  // Needed for DONE state, can't declare inside case
+    logic all_bins_ready = 1;  // Needed for Done state, can't declare inside case
 
     // Default
     next_state = state;
-    in_vert_ready = 0;
+    in_vert_ready_o = 0;
     // default next_out_data to the current registered output so we only change it
     next_out_data = out_data_reg;
     for (int bx = 0; bx < NUM_BINS_X; bx++)
-    for (int by = 0; by < NUM_BINS_Y; by++) out_valid[bx][by] = 0;
+    for (int by = 0; by < NUM_BINS_Y; by++) out_valid_o[bx][by] = 0;
 
     // Output + next state logic
     case (state)
-      AGGREGATING: begin
-        in_vert_ready = 1;
+      Aggregating: begin
+        in_vert_ready_o = 1;
 
         // Move to bounds calculation after 3 verts
-        if (in_vert_valid && vertex_count == 2) next_state = CALCULATING_BOUNDS;
+        if (in_vert_valid_i && vertex_count == 2) next_state = CalculatingBounds;
       end
-      CALCULATING_BOUNDS: begin
+      CalculatingBounds: begin
         // Calculate bounding box of triangle in fixed-point temporaries
         fixed_t min_x_fp = aggregated_triangle.v0.x;
         fixed_t max_x_fp = aggregated_triangle.v0.x;
@@ -113,7 +116,7 @@ module binner #(
         fixed_t max_y_fp = aggregated_triangle.v0.y;
         int min_x, max_x, min_y, max_y;
 
-        in_vert_ready = 0;
+        in_vert_ready_o = 0;
 
         // Assign triangle data into the combinational next value
         next_out_data = aggregated_triangle;
@@ -145,9 +148,9 @@ module binner #(
         if (next_out_data.max_x < 0 || next_out_data.min_x >= SCREEN_WIDTH ||
                     next_out_data.max_y < 0 || next_out_data.min_y >= SCREEN_HEIGHT)
                 begin
-          next_state = AGGREGATING;
+          next_state = Aggregating;
         end else begin
-          next_state = DONE;
+          next_state = Done;
         end
 
         // Otherwise, we clip to screen bounds
@@ -162,8 +165,8 @@ module binner #(
         next_out_data.min_y = min_y;
         next_out_data.max_y = max_y;
       end
-      DONE: begin
-        in_vert_ready = 0;
+      Done: begin
+        in_vert_ready_o = 0;
         // Done stage needs to figure out which bins to send the triangle to
         // But first, we can only proceed if all target bins are ready
         for (int bx = 0; bx < NUM_BINS_X; bx++) begin
@@ -173,11 +176,10 @@ module binner #(
             int bin_min_y = by * BIN_HEIGHT;
             int bin_max_y = bin_min_y + BIN_HEIGHT - 1;
 
-            // Bit type? never used this before
-            bit overlaps = !(out_data_reg.max_x < bin_min_x || out_data_reg.min_x > bin_max_x ||
+            logic overlaps = !(out_data_reg.max_x < bin_min_x || out_data_reg.min_x > bin_max_x ||
               out_data_reg.max_y < bin_min_y || out_data_reg.min_y > bin_max_y);
 
-            if (overlaps && !out_ready[bx][by]) all_bins_ready = 0;
+            if (overlaps && !out_ready_i[bx][by]) all_bins_ready = 0;
           end
         end
 
@@ -190,23 +192,22 @@ module binner #(
               int bin_min_y = by * BIN_HEIGHT;
               int bin_max_y = bin_min_y + BIN_HEIGHT - 1;
 
-
-              bit overlaps = !(out_data_reg.max_x < bin_min_x || out_data_reg.min_x > bin_max_x ||
+              logic overlaps = !(out_data_reg.max_x < bin_min_x || out_data_reg.min_x > bin_max_x ||
                   out_data_reg.max_y < bin_min_y || out_data_reg.min_y > bin_max_y);
 
-              if (overlaps) out_valid[bx][by] = 1;
+              if (overlaps) out_valid_o[bx][by] = 1;
             end
           end
           // Can move to next triangle after outputting, output will be accepted
-          next_state = AGGREGATING;
+          next_state = Aggregating;
         end else
-          // Output won't be accepted yet, so gotta stay in DONE
-          next_state = DONE;
+          // Output won't be accepted yet, so gotta stay in Done
+          next_state = Done;
       end
     endcase
   end
 
   // Drive module output from registered triangle so it persists across cycles
-  assign out_data = out_data_reg;
+  assign out_data_o = out_data_reg;
 
 endmodule

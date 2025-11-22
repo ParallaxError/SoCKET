@@ -3,7 +3,7 @@
  * @brief
  * Synchronous FIFO (First-In-First-Out) buffer implementation in SystemVerilog.
  * Used between synchronous clock domains to safely pass data, notably pipeline stages in the GPU.
- * Exposes simple interface with ready (empty/full) handshaking.
+ * Exposes simple interface with ready (empty_o/full_o) handshaking.
  *
  * -----
  * Last Modified: Monday, 10th November 2025 10:11 pm
@@ -12,49 +12,50 @@
 
 module sync_fifo #(
     parameter type T = logic [31:0],
-    parameter int DEPTH = 8
+    parameter int  DEPTH = 8
 ) (
-    input logic clk,
-    input logic rst,
+    input  logic clk_i,
+    input  logic rst_i,
 
-    input  logic rd_en,
-    output logic empty,
-    output T     rd_data,
-    output logic rd_data_valid,
+    input  logic rd_en_i,
+    output logic empty_o,
+    output T     rd_data_o,
+    output logic rd_data_valid_o,
 
-    input  logic wr_en,
-    input  T     wr_data,
-    output logic full
+    input  logic wr_en_i,
+    input  T     wr_data_i,
+    output logic full_o
 );
   localparam int WIDTH = $bits(T);
+  
   T fifo[DEPTH];
 
   logic [$clog2(DEPTH)-1:0] wr_ptr;
   logic [$clog2(DEPTH)-1:0] rd_ptr;
 
   // Control signal logic
-  assign empty = (wr_ptr == rd_ptr);
-  assign full  = ((wr_ptr + 1) % DEPTH) == rd_ptr;
+  assign empty_o = (wr_ptr == rd_ptr);
+  assign full_o  = ((wr_ptr + 1) % DEPTH) == rd_ptr;
 
   // Reading logic
-  always @(posedge clk) begin
-    if (rst) begin
+  always_ff @(posedge clk_i) begin
+    if (rst_i) begin
       rd_ptr <= '0;
-    end else if (rd_en && !empty && !rd_data_valid) begin
-      rd_data <= fifo[rd_ptr];
-      rd_data_valid <= 1;
+    end else if (rd_en_i && !empty_o && !rd_data_valid_o) begin
+      rd_data_o <= fifo[rd_ptr];
+      rd_data_valid_o <= 1;
       rd_ptr <= rd_ptr + 1;
     end else begin
-      rd_data_valid <= 0;
+      rd_data_valid_o <= 0;
     end
   end
 
   // Writing logic
-  always @(posedge clk) begin
-    if (rst) begin
+  always_ff @(posedge clk_i) begin
+    if (rst_i) begin
       wr_ptr <= '0;
-    end else if (wr_en && !full) begin
-      fifo[wr_ptr] <= wr_data;
+    end else if (wr_en_i && !full_o) begin
+      fifo[wr_ptr] <= wr_data_i;
       wr_ptr <= wr_ptr + 1;
     end
   end

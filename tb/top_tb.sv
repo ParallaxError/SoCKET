@@ -16,7 +16,7 @@ module top_tb();
     // Input FIFO
     logic        in_rd_en;
     logic        in_empty;
-    vertex_t     in_data;
+    vertex_t     in_data_i;
     logic        in_data_valid;
 
     logic        in_wr_en;
@@ -27,17 +27,17 @@ module top_tb();
         .T(vertex_t),
         .DEPTH(16)
     ) input_fifo (
-        .clk            (clk),
-        .rst            (rst),
+        .clk_i            (clk),
+        .rst_i            (rst),
 
-        .rd_en          (in_rd_en),
-        .empty          (in_empty),
-        .rd_data        (in_data),
-        .rd_data_valid  (in_data_valid),
+        .rd_en_i          (in_rd_en),
+        .empty_o          (in_empty),
+        .rd_data_o        (in_data_i),
+        .rd_data_valid_o  (in_data_valid),
 
-        .wr_en          (in_wr_en),
-        .wr_data        (in_wr_data),
-        .full           (in_full)
+        .wr_en_i          (in_wr_en),
+        .wr_data_i        (in_wr_data),
+        .full_o           (in_full)
     );
 
     // Output FIFO
@@ -51,17 +51,17 @@ module top_tb();
         .T(pixel_buffer_t),
         .DEPTH(64)
     ) output_fifo (
-        .clk            (clk),
-        .rst            (rst),
+        .clk_i            (clk),
+        .rst_i            (rst),
         
-        .rd_en          (out_rd_en),
-        .empty          (out_empty),
-        .rd_data        (out_rd_data),
-        .rd_data_valid  (out_rd_data_valid),
+        .rd_en_i          (out_rd_en),
+        .empty_o          (out_empty),
+        .rd_data_o        (out_rd_data),
+        .rd_data_valid_o  (out_rd_data_valid),
 
-        .wr_en          (gpu_valid && !out_full),
-        .wr_data        (gpu_data),
-        .full           (out_full)
+        .wr_en_i          (gpu_valid && !out_full),
+        .wr_data_i        (gpu_data),
+        .full_o           (out_full)
     );
 
     // GPU
@@ -73,18 +73,18 @@ module top_tb();
     mat4x4_t mvp;
 
     gpu gpu_inst (
-        .clk        (clk),
-        .rst        (rst),
+        .clk_i        (clk),
+        .rst_i        (rst),
         
-        .in_ready   (gpu_ready),
-        .in_data    (in_data),
-        .in_valid   (in_data_valid),
+        .in_valid_o   (gpu_ready),
+        .in_data_i    (in_data_i),
+        .in_valid_i   (in_data_valid),
 
-        .in_matrix  (mvp),
+        .in_matrix_i  (mvp),
 
-        .out_ready  (!out_full),
-        .out_data   (gpu_data),
-        .out_valid  (gpu_valid)
+        .out_ready_i  (!out_full),
+        .out_data_o   (gpu_data),
+        .out_valid_o  (gpu_valid)
     );
 
     // GPU should ask for data when input FIFO is not empty
@@ -210,7 +210,7 @@ module top_tb();
 
     // Timeout to prevent infinite simulation
     initial begin
-        #600000;
+        #6000000;
         $display("Test timed out!");
         $finish;
     end
