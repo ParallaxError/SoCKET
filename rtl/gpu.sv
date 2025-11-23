@@ -7,7 +7,7 @@
  * Exposes signals to show if the GPU is busy processing data or has data to output.
  *
  * -----
- * Last Modified: Monday, 10th November 2025 7:38 pm
+ * Last Modified: Saturday, 22nd November 2025 10:58 pm
  * -----
  */
 
@@ -19,21 +19,20 @@
 `include "types/fragment_pkg.svh"
 
 module gpu (
-    input  logic          clk_i,
-    input  logic          rst_i,
+    input  logic                      clk_i,
+    input  logic                      rst_i,
 
     // Input streaming iface
-    output logic          in_ready_o,
-    input  vertex_t       in_data_i,
-    input  logic          in_valid_i,
+    output logic                      in_ready_o,
+    input  vertex_pkg::vertex_t       in_data_i,
+    input  logic                      in_valid_i,
 
     // Input matrix
-    input  mat4x4_t       in_matrix_i,
-
+    input  mat4x4_pkg::mat4x4_t       in_matrix_i,
     // Output streaming iface
-    input  logic          out_ready_i,
-    output pixel_buffer_t out_data_o,
-    output logic          out_valid_o
+    input  logic                      out_ready_i,
+    output pixels_pkg::pixel_buffer_t out_data_o,
+    output logic                      out_valid_o
 );
   // Imports
   import rendering_pkg::*;

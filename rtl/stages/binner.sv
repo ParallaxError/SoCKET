@@ -5,7 +5,7 @@
  * Aggregates input vertices into triangles and assigns them to screen-space bins for rasterization.
  *
  * -----
- * Last Modified: Tuesday, 11th November 2025 8:49 pm
+ * Last Modified: Saturday, 22nd November 2025 10:56 pm
  * -----
  */
 
@@ -17,21 +17,21 @@
 module binner #(
     parameter int BIN_WIDTH  = 64,
     parameter int BIN_HEIGHT = 64,
-    parameter int NUM_BINS_X = SCREEN_WIDTH / BIN_WIDTH,
-    parameter int NUM_BINS_Y = SCREEN_HEIGHT / BIN_HEIGHT
+    parameter int NUM_BINS_X = rendering_pkg::SCREEN_WIDTH / BIN_WIDTH,
+    parameter int NUM_BINS_Y = rendering_pkg::SCREEN_HEIGHT / BIN_HEIGHT
 ) (
-    input  logic      clk_i,
-    input  logic      rst_i,
+    input  logic                    clk_i,
+    input  logic                    rst_i,
 
     // input streaming iface
-    output logic      in_vert_ready_o,
-    input  vertex_t   in_vert_data_i,
-    input  logic      in_vert_valid_i,
+    output logic                    in_vert_ready_o,
+    input  vertex_pkg::vertex_t     in_vert_data_i,
+    input  logic                    in_vert_valid_i,
 
     // output streaming iface
-    input  logic      out_ready_i[NUM_BINS_X][NUM_BINS_Y],
-    output triangle_t out_data_o,
-    output logic      out_valid_o[NUM_BINS_X][NUM_BINS_Y]
+    input  logic                    out_ready_i[NUM_BINS_X][NUM_BINS_Y],
+    output triangle_pkg::triangle_t out_data_o,
+    output logic                    out_valid_o[NUM_BINS_X][NUM_BINS_Y]
 );
   // Imports
   import fixed_point_pkg::*;

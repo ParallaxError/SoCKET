@@ -8,7 +8,7 @@
  * Details on the Matrix Multiplication Units used are in rtl/components/mat_mult.sv.
  *
  * -----
- * Last Modified: Tuesday, 11th November 2025 7:03 pm
+ * Last Modified: Saturday, 22nd November 2025 10:58 pm
  * -----
  */
 
@@ -18,21 +18,21 @@
 `include "types/rendering_pkg.svh"
 
 module vertex_shader (
-    input  logic    clk_i,
-    input  logic    rst_i,
+    input  logic                clk_i,
+    input  logic                rst_i,
 
     // input streaming iface
-    output logic    in_ready_o,
-    input  vertex_t in_data_i,
-    input  logic    in_valid_i,
+    output logic                in_ready_o,
+    input  vertex_pkg::vertex_t in_data_i,
+    input  logic                in_valid_i,
 
     // Input matrix
-    input  mat4x4_t in_matrix_i,
+    input  mat4x4_pkg::mat4x4_t in_matrix_i,
 
     // output streaming iface
-    input  logic    out_ready_i,
-    output vertex_t out_data_o,
-    output logic    out_valid_o
+    input  logic                out_ready_i,
+    output vertex_pkg::vertex_t out_data_o,
+    output logic                out_valid_o
 );
   // Imports
   import fixed_point_pkg::*;

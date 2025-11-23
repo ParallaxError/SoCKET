@@ -6,7 +6,7 @@
  * Fragments are output in pixel buffer format to be fragment shaded, then written to the output FIFO aggregator.
  *
  * -----
- * Last Modified: Tuesday, 11th November 2025 8:49 pm
+ * Last Modified: Sunday, 23rd November 2025 1:25 am
  * -----
  */
 
@@ -20,21 +20,21 @@
 module raster_shader #(
     parameter int TOP_LEFT_X     = 0,
     parameter int TOP_LEFT_Y     = 0,
-    parameter int PIXELS_PER_CYCLE = 32
+    parameter int PIXELS_PER_CYCLE = 1
 )
 (
-    input  logic            clk_i,
-    input  logic            rst_i,
+    input  logic                    clk_i,
+    input  logic                    rst_i,
 
     // input streaming iface
-    output logic            in_ready_o,
-    input  triangle_t       in_data_i,
-    input  logic            in_valid_i,
+    output logic                    in_ready_o,
+    input  triangle_pkg::triangle_t in_data_i,
+    input  logic                    in_valid_i,
 
     // output streaming iface
-    input  logic            out_ready_i,
-    output fragment_t       out_data_o,
-    output logic            out_valid_o
+    input  logic                    out_ready_i,
+    output fragment_pkg::fragment_t out_data_o,
+    output logic                    out_valid_o
 );
   // Imports
   import rendering_pkg::*;

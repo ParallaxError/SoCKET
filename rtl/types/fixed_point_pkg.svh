@@ -78,7 +78,7 @@ package fixed_point_pkg;
     // Shift left by the number of fractional bits before dividing
     // 64 bit extend, too
     dividend = ({{FIXED_WIDTH{a.value[FIXED_WIDTH-1]}}, a.value} <<< FIXED_FRAC);
-    result.value = $signed(dividend / {{FIXED_WIDTH{b.value[FIXED_WIDTH-1]}}, b.value})[FIXED_WIDTH-1:0];
+    result.value = $signed(dividend / {{FIXED_WIDTH{b.value[FIXED_WIDTH-1]}}, b.value});
     return result;
   endfunction
 

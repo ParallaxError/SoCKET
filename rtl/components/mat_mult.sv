@@ -5,7 +5,7 @@
  * Currently pipelined in 4 cycles, one for each row of the matrix.
  *
  * -----
- * Last Modified: Tuesday, 11th November 2025 7:10 pm
+ * Last Modified: Saturday, 22nd November 2025 10:55 pm
  * -----
  */
 
@@ -14,22 +14,22 @@
 `include "types/vertex_pkg.svh"
 
 module mat_mult (
-    input  logic    clk_i,
-    input  logic    rst_i,
+    input  logic                    clk_i,
+    input  logic                    rst_i,
 
     // Input vector
-    input  logic    in_vec_valid_i,
-    output logic    in_vec_ready_o,
-    input  vertex_t in_vec_i,
+    input  logic                    in_vec_valid_i,
+    output logic                    in_vec_ready_o,
+    input  vertex_pkg::vertex_t     in_vec_i,
 
     // Input matrix
-    input  mat4x4_t in_mat_i,
+    input  mat4x4_pkg::mat4x4_t     in_mat_i,
 
     // Output vector
-    output logic    out_vec_valid_o,
-    output vertex_t out_vec_o,
-    output fixed_t  w_o,
-    input  logic    out_vec_ready_i
+    output logic                    out_vec_valid_o,
+    output vertex_pkg::vertex_t     out_vec_o,
+    output fixed_point_pkg::fixed_t w_o,
+    input  logic                    out_vec_ready_i
 );
   // Imports
   import fixed_point_pkg::*;

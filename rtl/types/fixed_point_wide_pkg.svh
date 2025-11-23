@@ -5,7 +5,7 @@
  * Used for calculations like the edge functions in rasterization to avoid overflow.
  *
  * -----
- * Last Modified: Sunday, 9th November 2025 10:18 pm
+ * Last Modified: Saturday, 22nd November 2025 11:36 pm
  * -----
  */
 
@@ -27,8 +27,8 @@ package fixed_point_wide_pkg;
 
   function automatic fixed_wide_t from_int(int signed f);
     fixed_wide_t w;
-    // TODO: Surely a better way... ugly
-    w.value = $signed({{FIXED_WIDTH{$signed(f)[FIXED_WIDTH-1]}}, f}) <<< FIXED_FRAC;
+    w.value = $signed(f) <<< FIXED_FRAC;
+
     return w;
   endfunction
 
