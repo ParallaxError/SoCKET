@@ -5,7 +5,7 @@
  * Each triangle consists of 3 vertices, but also the bounding boxes of the triangle for efficient rasterization.
  *
  * -----
- * Last Modified: Tuesday, 11th November 2025 8:49 pm
+ * Last Modified: Sunday, 23rd November 2025 3:14 pm
  * -----
  */
 
@@ -21,7 +21,7 @@ package triangle_pkg;
   import rendering_pkg::*;
   import pixels_pkg::*;
 
-  typedef struct {
+  typedef struct packed {
     vertex_t v0;
     vertex_t v1;
     vertex_t v2;

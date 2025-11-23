@@ -7,7 +7,7 @@
  * Exposes signals to show if the GPU is busy processing data or has data to output.
  *
  * -----
- * Last Modified: Saturday, 22nd November 2025 10:58 pm
+ * Last Modified: Sunday, 23rd November 2025 10:44 pm
  * -----
  */
 
@@ -69,7 +69,7 @@ module gpu (
 
   sync_fifo #(
       .T(vertex_t),
-      .DEPTH(16)  // TODO magic
+      .DEPTH(2)  // TODO magic
   ) vs_to_binner_fifo (
       .clk_i          (clk_i),
       .rst_i          (rst_i),
@@ -129,7 +129,7 @@ module gpu (
 
         sync_fifo #(
             .T(triangle_t),
-            .DEPTH(16)  // TODO magic
+            .DEPTH(2)  // TODO magic
         ) binner_to_raster_fifo (
             .clk_i          (clk_i),
             .rst_i          (rst_i),

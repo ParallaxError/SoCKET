@@ -6,7 +6,7 @@
  * Fragments are output in pixel buffer format to be fragment shaded, then written to the output FIFO aggregator.
  *
  * -----
- * Last Modified: Sunday, 23rd November 2025 1:25 am
+ * Last Modified: Sunday, 23rd November 2025 9:09 pm
  * -----
  */
 
@@ -20,7 +20,7 @@
 module raster_shader #(
     parameter int TOP_LEFT_X     = 0,
     parameter int TOP_LEFT_Y     = 0,
-    parameter int PIXELS_PER_CYCLE = 1
+    parameter int PIXELS_PER_CYCLE = 2
 )
 (
     input  logic                    clk_i,
@@ -64,9 +64,12 @@ module raster_shader #(
 
     // Now, let's try Barycentric coordinates to interpolate colour
     // First, calculate lambdas as e/area
-    lambda0 = fixed_wide_div(e1, area);
-    lambda1 = fixed_wide_div(e2, area);
-    lambda2 = fixed_wide_div(e0, area);
+    // lambda0 = fixed_wide_div(e1, area);
+    // lambda1 = fixed_wide_div(e2, area);
+    // lambda2 = fixed_wide_div(e0, area);
+    lambda0 = e0;
+    lambda1 = e1;
+    lambda2 = e2;
 
     // Next, we (stupidly but fix later) promote the colours to wide fixed point for interpolation and sum them
     r_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.r), lambda0),
@@ -183,7 +186,7 @@ module raster_shader #(
   // Next, for barycentric coords we need to know the total (signed) area of the tri to optimise
   // TODO: Could pass this in from binner, since binner should calc it anyway for backface culling
   fixed_wide_t tri_area;
-  assign tri_area = edge_function(tri_x0, tri_y0, tri_x1, tri_y1, tri_x2, tri_y2);
+  // assign tri_area = edge_function(tri_x0, tri_y0, tri_x1, tri_y1, tri_x2, tri_y2);
 
   // For wrap checking in tile_next
   logic [$clog2(SCREEN_WIDTH):0] wrap_x;

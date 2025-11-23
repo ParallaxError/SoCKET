@@ -6,7 +6,7 @@
  * we define a packed structure to hold multiple pixels.
  *
  * -----
- * Last Modified: Tuesday, 11th November 2025 2:04 pm
+ * Last Modified: Sunday, 23rd November 2025 3:23 pm
  * -----
  */
 
@@ -28,13 +28,13 @@ package pixels_pkg;
   // for how many pixels are valid (may output less than max if at end of line)
   localparam int PIXEL_WIDTH = $bits(pixel_t);
   localparam int PIXELS_PER_WORD = 32 / PIXEL_WIDTH;
-  typedef struct {
+  typedef struct packed {
     logic [$clog2(SCREEN_WIDTH / PIXELS_PER_WORD)-1:0] x;
     // y indexes full pixel rows, so width should be based on SCREEN_HEIGHT (not divided
     // by PIXELS_PER_WORD). Using SCREEN_HEIGHT/PIXELS_PER_WORD here truncated values
     // (e.g. 135 -> 7). Use full height so rows up to SCREEN_HEIGHT-1 fit.
     logic [$clog2(SCREEN_HEIGHT)-1:0] y;
-    pixel_t pixels[PIXELS_PER_WORD];
+    pixel_t [0:PIXELS_PER_WORD-1] pixels;
     logic [PIXELS_PER_WORD - 1:0] valid_pixels;
   } pixel_buffer_t;
 

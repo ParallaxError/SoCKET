@@ -4,7 +4,7 @@
  * Rendering-specific definitions and constants for the graphics pipeline.
  *
  * -----
- * Last Modified: Wednesday, 5th November 2025 3:27 pm
+ * Last Modified: Sunday, 23rd November 2025 8:54 pm
  * -----
  */
 

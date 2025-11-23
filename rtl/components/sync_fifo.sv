@@ -6,7 +6,7 @@
  * Exposes simple interface with ready (empty_o/full_o) handshaking.
  *
  * -----
- * Last Modified: Monday, 10th November 2025 10:11 pm
+ * Last Modified: Sunday, 23rd November 2025 11:26 pm
  * -----
  */
 
@@ -26,7 +26,9 @@ module sync_fifo #(
     input  T     wr_data_i,
     output logic full_o
 ); 
-  T fifo[DEPTH];
+  // Use a flat logic memory so synthesis can infer a single BRAM reliably
+  localparam int MEMW = $bits(T);
+  (* ram_style = "block" *) logic [MEMW-1:0] fifo_mem [0:DEPTH-1];
 
   logic [$clog2(DEPTH)-1:0] wr_ptr;
   logic [$clog2(DEPTH)-1:0] rd_ptr;
@@ -36,11 +38,12 @@ module sync_fifo #(
   assign full_o  = ((wr_ptr + 1) % DEPTH) == rd_ptr;
 
   // Reading logic
-  always_ff @(posedge clk_i or posedge rst_i) begin
+  // TODO: Synchronous reset to infer BRAM, is that ok?
+  always_ff @(posedge clk_i) begin
     if (rst_i) begin
       rd_ptr <= '0;
     end else if (rd_en_i && !empty_o && !rd_data_valid_o) begin
-      rd_data_o <= fifo[rd_ptr];
+      rd_data_o <= T'(fifo_mem[rd_ptr]);
       rd_data_valid_o <= 1;
       rd_ptr <= rd_ptr + 1;
     end else begin
@@ -49,11 +52,11 @@ module sync_fifo #(
   end
 
   // Writing logic
-  always_ff @(posedge clk_i or posedge rst_i) begin
+  always_ff @(posedge clk_i) begin
     if (rst_i) begin
       wr_ptr <= '0;
     end else if (wr_en_i && !full_o) begin
-      fifo[wr_ptr] <= wr_data_i;
+      fifo_mem[wr_ptr] <= T'(wr_data_i);
       wr_ptr <= wr_ptr + 1;
     end
   end
