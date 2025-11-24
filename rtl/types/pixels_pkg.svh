@@ -19,9 +19,9 @@ package pixels_pkg;
 
   // Single pixel structure
   typedef struct packed {
-    logic [7:0] r;
-    logic [7:0] g;
-    logic [7:0] b;
+    logic [2:0] r;
+    logic [2:0] g;
+    logic [1:0] b;
   } pixel_t;
 
   // 32 bit buffer holding as many pixels as possible, with a signal

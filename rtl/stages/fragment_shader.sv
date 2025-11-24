@@ -37,9 +37,9 @@ module fragment_shader (
 
   always_comb begin
     // Default outputs
-    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].r = in_data_i.r[7:0];
-    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].g = in_data_i.g[7:0];
-    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].b = in_data_i.b[7:0];
+    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].r = in_data_i.r[7:5];
+    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].g = in_data_i.g[7:5];
+    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].b = in_data_i.b[7:6];
   end
 
   assign out_valid_o             = in_valid_i;

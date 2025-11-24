@@ -94,8 +94,19 @@ module vertex_shader (
       //     )
       // );
 
-      out_data_o.x.value <= out_mat_data.x.value; // Pass through x for now
-      out_data_o.y.value <= out_mat_data.y.value; // Pass through y for now
+      // Also multiply with screen size to get screen coordinates
+      out_data_o.x.value <= fixed_point_mult(
+          out_mat_data.x.value, from_real(rendering_pkg::SCREEN_WIDTH)
+      );
+      // TODO Shorten
+      out_data_o.y.value <= fixed_point_sub(
+          from_real(real'(SCREEN_HEIGHT)),
+          fixed_point_mult(
+              out_mat_data.y.value,
+              from_real(rendering_pkg::SCREEN_HEIGHT)
+          )
+      );
+
       // out_data_o.z.value <= fixed_point_div(out_mat_data.z.value, out_mat_w);
       out_data_o.z.value <= out_mat_data.z.value; // Pass through z for now
       out_data_o.r <= out_mat_data.r;

@@ -151,9 +151,8 @@ module binner #(
         max_y = fixed_point_to_int(max_y_fp);
 
         // If the triangle is completely off-screen, discard it
-        if ($signed(next_out_data.max_x) < 0 || next_out_data.min_x >= SCREEN_WIDTH ||
-                    $signed(next_out_data.max_y) < 0 || next_out_data.min_y >= SCREEN_HEIGHT)
-                begin
+        if ($signed(max_x) < 0 || min_x >= SCREEN_WIDTH || $signed(max_y) < 0 || min_y >= SCREEN_HEIGHT)
+        begin
           next_state = Aggregating;
         end else begin
           next_state = Done;

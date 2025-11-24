@@ -136,10 +136,13 @@ module gpu_top ( input  logic        clk,
       if (out_valid_o && !de_req)
       begin
         // Latch output data
-        de_addr   <= (out_data_o.y * SCREEN_WIDTH) + out_data_o.x;
+        de_addr   <= (out_data_o.y * (SCREEN_WIDTH / PIXELS_PER_WORD)) + out_data_o.x;
         for (int i = 0; i < PIXELS_PER_WORD; i++)
         begin
-            de_w_data[((i + 1)*8) -: 8] <= out_data_o.pixels[i];
+          if (out_data_o.valid_pixels[i])
+          begin
+            de_w_data[((i + 1)*8) - 1 -: 8] <= out_data_o.pixels[i];
+          end
         end
 
         de_nbyte <= ~out_data_o.valid_pixels;
@@ -151,6 +154,7 @@ module gpu_top ( input  logic        clk,
       begin
         de_req    <= 1'b0;
         out_ready_i <= 1'b1;
+        de_w_data <= 32'h0;
       end
     end
   end
