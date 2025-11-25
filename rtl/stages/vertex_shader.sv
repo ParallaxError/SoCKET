@@ -8,7 +8,7 @@
  * Details on the Matrix Multiplication Units used are in rtl/components/mat_mult.sv.
  *
  * -----
- * Last Modified: Sunday, 23rd November 2025 9:35 pm
+ * Last Modified: Tuesday, 25th November 2025 11:51 am
  * -----
  */
 
@@ -46,12 +46,12 @@ module vertex_shader (
   fixed_t out_mat_w;
   logic out_mat_ready;
 
-  logic div_ready;
-  logic div_valid;
+  // Signals to connect matrix mult to dividers
+  logic x_div_ready, y_div_ready, z_div_ready;
 
   // We're ready to accept new data when the output of the mat_mult is ready if we have valid input and the matrix
   // is valid
-  assign out_mat_ready = div_ready;
+  assign out_mat_ready = x_div_ready && y_div_ready && z_div_ready;
 
   // Matrix multiplication unit
   mat_mult mat_mult_inst (
@@ -73,54 +73,116 @@ module vertex_shader (
       .out_vec_ready_i(out_mat_ready)
   );
 
+  // Perpsective divide stage
+  // Takes in transformed vertex and performs perspective divide to get screen coordinates
+  // Need three dividers for x, y, z
+  fixed_t x_numerator, y_numerator, z_numerator;
+  fixed_t w_reg;
+  fixed_t x_output, y_output, z_output;
+  logic   x_in_valid, y_in_valid, z_in_valid;
+  logic   x_div_valid, y_div_valid, z_div_valid;
+
+  // Reciprocal units
+  reciprocal reciprocal_x_inst (
+      .clk_i              (clk_i),
+      .rst_i              (rst_i),
+
+      .in_ready_o         (x_div_ready),
+      .in_valid_i         (x_in_valid),
+      .in_denominator_i   (w_reg),
+      .in_numerator_i     (x_numerator),
+
+      .out_ready_i        (out_ready_i),
+      .out_data_o         (x_output),
+      .out_valid_o        (x_div_valid)
+  );
+
+  reciprocal reciprocal_y_inst (
+      .clk_i              (clk_i),
+      .rst_i              (rst_i),
+
+      .in_ready_o         (y_div_ready),
+      .in_valid_i         (y_in_valid),
+      .in_denominator_i   (w_reg),
+      .in_numerator_i     (y_numerator),
+
+      .out_ready_i        (out_ready_i),
+      .out_data_o         (y_output),
+      .out_valid_o        (y_div_valid)
+  );
+
+  reciprocal reciprocal_z_inst (
+      .clk_i              (clk_i),
+      .rst_i              (rst_i),
+
+      .in_ready_o         (z_div_ready),
+      .in_valid_i         (z_in_valid),
+      .in_denominator_i   (w_reg),
+      .in_numerator_i     (z_numerator),
+      
+      .out_ready_i        (out_ready_i),
+      .out_data_o         (z_output),
+      .out_valid_o        (z_div_valid)
+  );
+
   always_ff @(posedge clk_i or posedge rst_i) begin
     if (rst_i) begin
-      div_valid <= 1'b0;
-      div_ready <= 1'b1;
-    end else if (out_mat_valid && out_mat_ready) begin
-      // perform perspective divide
-      // x' = x / w, y' = y / w, z' = z / w
-      // Here we assume w is non-zero; in a full implementation, should handle w=0 case
-      // Also multiply with screen size to get screen coordinates
-      // out_data_o.x.value <= fixed_point_mult(
-      //     fixed_point_div(out_mat_data.x.value, out_mat_w), from_real(rendering_pkg::SCREEN_WIDTH)
-      // );
-      // // TODO Shorten
-      // out_data_o.y.value <= fixed_point_sub(
-      //     from_real(real'(SCREEN_HEIGHT)),
-      //     fixed_point_mult(
-      //         fixed_point_div(out_mat_data.y.value, out_mat_w),
-      //         from_real(rendering_pkg::SCREEN_HEIGHT)
-      //     )
-      // );
+      x_in_valid <= 1'b0;
+      y_in_valid <= 1'b0;
+      z_in_valid <= 1'b0;
+      
+      out_valid_o <= 1'b0;
+      
+      x_numerator <= fixed_t'('0);
+      y_numerator <= fixed_t'('0);
+      z_numerator <= fixed_t'('0);
+    end else begin
+      // Default: deassert input valids; we'll pulse them when we accept a mat result
+      x_in_valid <= 1'b0;
+      y_in_valid <= 1'b0;
+      z_in_valid <= 1'b0;
+      out_valid_o <= 1'b0;
 
-      // Also multiply with screen size to get screen coordinates
-      out_data_o.x.value <= fixed_point_mult(
-          out_mat_data.x.value, from_real(rendering_pkg::SCREEN_WIDTH)
-      );
-      // TODO Shorten
-      out_data_o.y.value <= fixed_point_sub(
-          from_real(real'(SCREEN_HEIGHT)),
-          fixed_point_mult(
-              out_mat_data.y.value,
-              from_real(rendering_pkg::SCREEN_HEIGHT)
-          )
-      );
+      if (out_mat_valid && out_mat_ready) begin
+        // Perspective divide: Convert to screen coordinates then divide by w
+        // Division is done by the reciprocal units, we just set up numerators and pulse valids
 
-      // out_data_o.z.value <= fixed_point_div(out_mat_data.z.value, out_mat_w);
-      out_data_o.z.value <= out_mat_data.z.value; // Pass through z for now
-      out_data_o.r <= out_mat_data.r;
-      out_data_o.g <= out_mat_data.g;
-      out_data_o.b <= out_mat_data.b;
-      div_valid <= 1'b1;
-      div_ready <= out_ready_i;  // Div can accept new input if consumer will accept next cycle
-    end else if (div_valid && out_ready_i) begin
-      div_valid <= 1'b0;
-      div_ready <= 1'b1;
+        x_numerator <= out_mat_data.x;
+        y_numerator <= out_mat_data.y;
+        z_numerator <= out_mat_data.z;
+        w_reg <= out_mat_w;
+
+        // Passthrough colour
+        out_data_o.r <= out_mat_data.r;
+        out_data_o.g <= out_mat_data.g;
+        out_data_o.b <= out_mat_data.b;
+
+        // Pulse valids to start dividers
+        x_in_valid <= 1'b1;
+        y_in_valid <= 1'b1;
+        z_in_valid <= 1'b1;
+      end else begin
+        x_in_valid <= 1'b0;
+        y_in_valid <= 1'b0;
+        z_in_valid <= 1'b0;
+      end
+
+      // When all dividers have valid outputs and the downstream consumer will accept, present the result
+      if (x_div_valid && y_div_valid && z_div_valid) begin
+        // Only mark the vertex output valid when consumer ready is asserted (or hold until accepted)
+        if (out_ready_i) begin
+          out_valid_o <= 1'b1;
+          out_data_o.x <= fixed_point_mult(
+              x_output, from_real(real'(rendering_pkg::SCREEN_WIDTH))
+          );
+          out_data_o.y <= fixed_point_sub(
+              from_real(real'(rendering_pkg::SCREEN_HEIGHT)), 
+              fixed_point_mult(y_output, from_real(real'(rendering_pkg::SCREEN_HEIGHT)))
+          );
+          out_data_o.z <= z_output;
+        end
+      end
     end
   end
-
-  // output signals
-  assign out_valid_o = div_valid;
 
 endmodule

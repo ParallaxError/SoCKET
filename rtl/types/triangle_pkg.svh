@@ -5,7 +5,7 @@
  * Each triangle consists of 3 vertices, but also the bounding boxes of the triangle for efficient rasterization.
  *
  * -----
- * Last Modified: Sunday, 23rd November 2025 3:14 pm
+ * Last Modified: Tuesday, 25th November 2025 12:05 pm
  * -----
  */
 
@@ -25,6 +25,8 @@ package triangle_pkg;
     vertex_t v0;
     vertex_t v1;
     vertex_t v2;
+
+    // Inverse of area for co
 
     // Bounding box for the triangle
     logic [$clog2(SCREEN_WIDTH) - 1:0]  min_x;
