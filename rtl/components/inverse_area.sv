@@ -1,49 +1,50 @@
 /*
  * @file /rtl/components/reciprocal.sv
  * @brief
- * Newton-Raphson based reciprocal calculation module.
+ * Newton-Raphson based reciprocal calculation for the wide fixed point type to obtain the inverse
+ * of the triangles area.
  * Pipelined to take multiple cycles, exposing valid/ready streaming interface.
  *
  * Currently uses a 128 lookup table for initial approximation, followed by 2 Newton-Raphson iterations. 
  * 
  * -----
- * Last Modified: Tuesday, 25th November 2025 11:55 am
+ * Last Modified: Tuesday, 26th November 2025 11:55 am
  * -----
  */
 
 `include "types/fixed_point_pkg.svh"
+`include "types/fixed_point_wide_pkg.svh"
 
-module reciprocal # (
+module inverse_area # (
     parameter int LUT_SIZE =   128,         
     parameter int ITERATIONS = 2
 ) (
-    input  logic                    clk_i,
-    input  logic                    rst_i,
+    input  logic                              clk_i,
+    input  logic                              rst_i,
 
     // Input streaming iface
-    output logic                    in_ready_o,
-    input  fixed_point_pkg::fixed_t in_numerator_i,
-    input  fixed_point_pkg::fixed_t in_denominator_i,
-    input  logic                    in_valid_i,
+    output logic                              in_ready_o,
+    input  fixed_point_wide_pkg::fixed_wide_t in_denominator_i,
+    input  logic                              in_valid_i,
 
     // Output streaming iface
-    input  logic                    out_ready_i,
-    output fixed_point_pkg::fixed_t out_data_o,
-    output logic                    out_valid_o
+    input  logic                              out_ready_i,
+    output fixed_point_wide_pkg::fixed_wide_t out_data_o,
+    output logic                              out_valid_o
 );
 
   import fixed_point_pkg::*;
+  import fixed_point_wide_pkg::*;
 
   typedef enum logic [1:0] {
     Idle,
-    Iterate,
-    Multiply
+    Iterate
   } state_e;
 
   state_e state, next_state;
 
   // Initial approximation LUT
-  fixed_t lut [0:LUT_SIZE-1];
+  fixed_wide_t lut [0:LUT_SIZE-1];
   initial begin
     // Precompute the LUT values (procedural for-loop is synthesizer/testbench friendly)
     for (int i = 0; i < LUT_SIZE; i++) begin
@@ -51,15 +52,15 @@ module reciprocal # (
       real recip; 
       denom = 1.0 + (real'(i) / real'(LUT_SIZE));
       recip = 1.0 / denom;
-      lut[i] = from_real(recip);
+      lut[i] = from_fixed(from_real(recip));
     end
   end
 
   // Internal signals
-  fixed_t cur_reciprocal;
-  fixed_t next_reciprocal;
+  fixed_wide_t cur_reciprocal;
+  fixed_wide_t next_reciprocal;
 
-  logic [$clog2(ITERATIONS)-1:0] iteration;
+  logic [$clog2(ITERATIONS + 1)-1:0] iteration;
 
   // For LUT approximation, we need to normalize the denominator to the range [1,2)
   // This means for example, 10.5 -> 1.25 (shift -1), 0.75 -> 1.5 (shift +1)
@@ -69,23 +70,23 @@ module reciprocal # (
 
   // Normalization helpers and storage
   localparam int LUT_ADDR_WIDTH = $clog2(LUT_SIZE);
-  localparam int SHIFT_WIDTH = $clog2(FIXED_WIDTH) + 1;
+  localparam int SHIFT_WIDTH = $clog2(FIXED_WIDE_WIDTH) + 1;
 
   typedef struct {
-    fixed_t norm;
+    fixed_wide_t norm;
     logic signed [SHIFT_WIDTH-1:0] shift;
     logic sign;
     logic is_zero;
   } normalised_t;
 
   // Function: normalize denominator into range [1,2) and return shift/sign/zero flag
-  function automatic normalised_t normalize_den(input fixed_t d);
+  function automatic normalised_t normalize_den(input fixed_wide_t d);
     normalised_t r;
-    logic [FIXED_WIDTH-1:0] abs_val;
+    logic [FIXED_WIDE_WIDTH-1:0] abs_val;
     int msb;
 
     // First step is to find the absolute value and sign
-    r.sign = d.value[FIXED_WIDTH-1];
+    r.sign = d.value[FIXED_WIDE_WIDTH-1];
     if (r.sign)
       abs_val = -d.value;
     else
@@ -93,7 +94,7 @@ module reciprocal # (
 
     // Next, to find the MSB position we scan from MSB downwards for a one.
     msb = -1;
-    for (int i = FIXED_WIDTH-1; i >= 0; i--) begin
+    for (int i = FIXED_WIDE_WIDTH-1; i >= 0; i--) begin
       if (abs_val[i] && msb == -1) msb = i;
       // TODO: Can I break here?
     end
@@ -108,12 +109,12 @@ module reciprocal # (
     else
     begin
       int S;
-      logic [FIXED_WIDTH-1:0] norm_bits;
+      logic [FIXED_WIDE_WIDTH-1:0] norm_bits;
 
       r.is_zero = 1'b0;
 
-      // Ok, we need to shift to get MSB to FIXED_FRAC position
-      S = FIXED_FRAC - msb;
+      // Ok, we need to shift to get MSB to FIXED_WIDE_FRAC position
+      S = FIXED_WIDE_FRAC - msb;
       r.shift = S;
       // Shift the value: probably another DSP
       if (S >= 0)
@@ -129,7 +130,7 @@ module reciprocal # (
   // Registers to hold normalization results between cycles
   logic signed [SHIFT_WIDTH-1:0] shift_amount;
   logic denominator_signed;
-  fixed_t normalised_denominator;
+  fixed_wide_t normalised_denominator;
 
   // Sequential logic
   always_ff @(posedge clk_i or posedge rst_i) begin
@@ -154,14 +155,14 @@ module reciprocal # (
           cur_reciprocal <= lut[0];
         end else begin
           logic [LUT_ADDR_WIDTH-1:0] lut_idx;
-          lut_idx = $unsigned(normalised_struct.norm.value[FIXED_FRAC-1 -: LUT_ADDR_WIDTH]);
+          lut_idx = $unsigned(normalised_struct.norm.value[FIXED_WIDE_FRAC-1 -: LUT_ADDR_WIDTH]);
           cur_reciprocal <= lut[lut_idx];
         end
 
         iteration <= 0;
       end
 
-      if (state == Iterate && iteration < ITERATIONS)
+      if (state == Iterate && iteration < (ITERATIONS + 1))
       begin
         cur_reciprocal <= next_reciprocal;
         iteration <= iteration + 1;
@@ -172,17 +173,17 @@ module reciprocal # (
   // Output and next state combinational logic
   always_comb 
   begin
-    fixed_t D_xn, two_minus_D_xn, corrected_reciprocal;
+    fixed_wide_t D_xn, two_minus_D_xn, corrected_reciprocal;
     
     // Defaults
-    D_xn = fixed_t'('0);
-    two_minus_D_xn = fixed_t'('0);
-    corrected_reciprocal = fixed_t'('0);
+    D_xn = fixed_wide_t'('0);
+    two_minus_D_xn = fixed_wide_t'('0);
+    corrected_reciprocal = fixed_wide_t'('0);
 
     next_reciprocal = cur_reciprocal;
     next_state = state;
     out_valid_o = 1'b0;
-    out_data_o = fixed_t'('0);
+    out_data_o = fixed_wide_t'('0);
 
     case (state)
       Idle: 
@@ -197,30 +198,28 @@ module reciprocal # (
         // Newton-Raphson iteration: x_{n+1} = x_n * (2 - D * x_n)
         // Use normalized denominator in the iteration
         
-        D_xn = fixed_point_mult(normalised_denominator, cur_reciprocal);
-        two_minus_D_xn = from_real(2.0) - D_xn;
+        D_xn = fixed_wide_mul(normalised_denominator, cur_reciprocal);
+        two_minus_D_xn = fixed_wide_sub(from_fixed(from_real(2.0)), D_xn);
 
-        next_reciprocal = fixed_point_mult(cur_reciprocal, two_minus_D_xn);
+        next_reciprocal = fixed_wide_mul(cur_reciprocal, two_minus_D_xn);
 
-        if (iteration + 1 >= ITERATIONS) 
-          next_state = Multiply;
-      end
-      Multiply: 
-      begin
-        // Apply exponent correction: reciprocal(original) = reciprocal(normalized) * 2^{S}        
-        if (shift_amount >= 0) begin
-          corrected_reciprocal.value = cur_reciprocal.value <<< shift_amount;
-        end else begin
-          corrected_reciprocal.value = cur_reciprocal.value >>> (-shift_amount);
-        end
-        // Reapply sign of denominator: reciprocal of negative denom is negative
-        if (denominator_signed) corrected_reciprocal.value = -corrected_reciprocal.value;
-
-        // Final multiply: numerator * corrected reciprocal
-        out_data_o = fixed_point_mult(in_numerator_i, corrected_reciprocal);
-        out_valid_o = 1'b1;
-        if (out_ready_i) 
+        if (iteration + 1 > ITERATIONS && out_ready_i) 
           next_state = Idle;
+
+        if (iteration + 1 > ITERATIONS) 
+        begin
+          out_valid_o = 1'b1;
+          // Apply exponent correction: reciprocal(original) = reciprocal(normalized) * 2^{S}        
+          if (shift_amount >= 0) begin
+            corrected_reciprocal.value = cur_reciprocal.value <<< shift_amount;
+          end else begin
+            corrected_reciprocal.value = cur_reciprocal.value >>> (-shift_amount);
+          end
+          
+          // Reapply sign of denominator: reciprocal of negative denom is negative
+          if (denominator_signed) corrected_reciprocal.value = -corrected_reciprocal.value;
+          out_data_o = corrected_reciprocal;
+        end
       end
       default:
       begin

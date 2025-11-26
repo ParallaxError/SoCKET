@@ -10,6 +10,7 @@
  */
 
 `include "types/fixed_point_pkg.svh"
+`include "types/fixed_point_wide_pkg.svh"
 `include "types/vertex_pkg.svh"
 `include "types/triangle_pkg.svh"
 `include "types/rendering_pkg.svh"
@@ -35,6 +36,7 @@ module binner #(
 );
   // Imports
   import fixed_point_pkg::*;
+  import fixed_point_wide_pkg::*;
   import vertex_pkg::*;
   import triangle_pkg::*;
   import rendering_pkg::*;
@@ -45,6 +47,7 @@ module binner #(
   typedef enum logic [1:0] {
     Aggregating,
     CalculatingBounds,
+    WaitingForDivider,
     Done
   } state_e;
 
@@ -58,6 +61,28 @@ module binner #(
 
   // Combinational next value for out_data_reg (computed during CalculatingBounds)
   triangle_t next_out_data;
+
+  // 1/area calculation
+  // Reciprocal signals
+  fixed_wide_t area_reg;
+  fixed_wide_t div_output;
+  logic   div_in_valid;
+  logic   div_out_valid;
+  logic   div_ready;
+
+  // Area inverser
+  inverse_area inverse_area_inst (
+      .clk_i              (clk_i),
+      .rst_i              (rst_i),
+
+      .in_ready_o         (div_ready),
+      .in_valid_i         (div_in_valid),
+      .in_denominator_i   (area_reg),
+
+      .out_ready_i        (state == WaitingForDivider ? 1'b1 : 1'b0),
+      .out_data_o         (div_output),
+      .out_valid_o        (div_out_valid)
+  );
 
   // Next state sequential logic
   always_ff @(posedge clk_i or posedge rst_i) begin
@@ -74,15 +99,23 @@ module binner #(
         endcase
 
         vertex_count <= vertex_count + 1;
+
+        // Latch and calculate edge area when moving to CalculatingBounds
+        if (next_state == CalculatingBounds) begin
+          // Can't use aggregated_triangle here since it'll be latched *this* cycle
+          area_reg = edge_function(
+            aggregated_triangle.v0.x, aggregated_triangle.v0.y,
+            aggregated_triangle.v1.x, aggregated_triangle.v1.y,
+            in_vert_data_i.x, in_vert_data_i.y
+          );
+        end
       end
 
       // Reset vert count before next triangle
       if (state == Done && next_state == Aggregating) vertex_count <= 0;
-
+      
       // Latch computed triangle when we transition to Done from CalculatingBounds
-      if (state == CalculatingBounds && next_state == Done) begin
-        out_data_reg <= next_out_data;
-      end
+      out_data_reg <= next_out_data;
 
       state <= next_state;
     end
@@ -103,13 +136,15 @@ module binner #(
       for (int by = 0; by < NUM_BINS_Y; by++)
         out_valid_o[bx][by] = 0;
 
+    div_in_valid = 1'b0;
+
     // Output + next state logic
     case (state)
       Aggregating: begin
         in_vert_ready_o = 1;
 
         // Move to bounds calculation after 3 verts
-        if (in_vert_valid_i && vertex_count == 2) next_state = CalculatingBounds;
+        if (in_vert_valid_i && vertex_count == 2 && div_ready) next_state = CalculatingBounds;
       end
       CalculatingBounds: begin
         // First set the minimum to vert 0s coords, then we compare against other verts
@@ -155,7 +190,7 @@ module binner #(
         begin
           next_state = Aggregating;
         end else begin
-          next_state = Done;
+          next_state = WaitingForDivider; // Otherwise we wait for the divider
         end
 
         // Otherwise, we clip to screen bounds
@@ -169,6 +204,19 @@ module binner #(
         next_out_data.max_x = max_x;
         next_out_data.min_y = min_y;
         next_out_data.max_y = max_y;
+
+        // While we do this, populate reciprocal unit to calculate 1/a
+        div_in_valid = 1'b1;
+      end
+      WaitingForDivider: begin
+        in_vert_ready_o = 0;
+
+        // When reciprocal output valid, latch it and move to Done
+        if (div_out_valid) begin
+          // Latch inverse area
+          next_out_data.inverse_area = div_output;
+          next_state = Done;
+        end
       end
       Done: begin
         in_vert_ready_o = 0;

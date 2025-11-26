@@ -28,6 +28,13 @@ package fixed_point_pkg;
     return f;
   endfunction
 
+  // From int
+  function automatic fixed_t from_int(int i);
+    fixed_t f;
+    f.value = i <<< FIXED_FRAC;
+    return f;
+  endfunction
+
   // Convert back to real (for testbench printing)
   function automatic real to_real(fixed_t f);
     return real'(f.value) / real'(1 << FIXED_FRAC);

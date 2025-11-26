@@ -47,7 +47,7 @@ module raster_shader #(
   // Helper function for fragment shading, will be deleted later
   function automatic fragment_t create_fragment(
       int pixel_x, int pixel_y, logic [7:0] r, logic [7:0] g, logic [7:0] b,
-      fixed_wide_t e0, fixed_wide_t e1, fixed_wide_t e2, fixed_wide_t area
+      fixed_wide_t e0, fixed_wide_t e1, fixed_wide_t e2
   );
     fragment_t frag;
     fixed_wide_t lambda0, lambda1, lambda2;
@@ -55,7 +55,7 @@ module raster_shader #(
 
     int pixel_index;
     // Initialize to zero
-    frag = '{default: '{default: '0}};
+    // frag = '{default: '{default: '0}};
     // Divide by pixels per word to get x,y in the pixel buffer
     pixel_index = pixel_x % PIXELS_PER_WORD;
 
@@ -64,12 +64,12 @@ module raster_shader #(
 
     // Now, let's try Barycentric coordinates to interpolate colour
     // First, calculate lambdas as e/area
-    lambda0 = fixed_wide_div(e1, area);
-    lambda1 = fixed_wide_div(e2, area);
-    lambda2 = fixed_wide_div(e0, area);
-    // lambda0 = e0;
-    // lambda1 = e1;
-    // lambda2 = e2;
+    // lambda0 = fixed_wide_div(e1, area);
+    // lambda1 = fixed_wide_div(e2, area);
+    // lambda2 = fixed_wide_div(e0, area);
+    lambda0 = e0;
+    lambda1 = e1;
+    lambda2 = e2;
 
     // Next, we (stupidly but fix later) promote the colours to wide fixed point for interpolation and sum them
     r_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.r), lambda0),
@@ -85,7 +85,7 @@ module raster_shader #(
                                             fixed_wide_mul(from_int(cur_triangle.v2.b), lambda2));
 
     // Finally, truncate and shift to (5, 6, 5) bits
-    frag.r = to_int8(r_wide);
+    frag.r = r;
     frag.g = to_int8(g_wide);
     frag.b = to_int8(b_wide);
 
@@ -104,28 +104,6 @@ module raster_shader #(
   assign tri_x2 = from_fixed(cur_triangle.v2.x);
   assign tri_y2 = from_fixed(cur_triangle.v2.y);
 
-  // Edge function helper (returns signed area)
-  function automatic fixed_wide_t edge_function(
-      fixed_wide_t px, fixed_wide_t py,
-      fixed_wide_t x0, fixed_wide_t y0,
-      fixed_wide_t x1, fixed_wide_t y1
-  );
-      // Use wider intermediates
-      fixed_wide_t dxp, dyp, dx, dy, term1, term2;
-
-      // Compute differences (sign-extend to wide type)
-      dxp = fixed_wide_sub(px, x0);
-      dyp = fixed_wide_sub(py, y0);
-      dx  = fixed_wide_sub(x1, x0);
-      dy  = fixed_wide_sub(y1, y0);
-
-      // Edge function = (px - x0)*(y1 - y0) - (py - y0)*(x1 - x0)
-      term1 = fixed_wide_mul(dxp, dy);
-      term2 = fixed_wide_mul(dyp, dx);
-
-      return fixed_wide_sub(term1, term2);
-  endfunction
-
   // For now, we output constant colour pixels for every pixel in the triangle
   // Horribly pipelined, but works for now
   typedef enum logic [1:0] {
@@ -141,8 +119,7 @@ module raster_shader #(
   // The combinatorial logic will attempt to process as many pixels as possible per cycle, so this value will be that
   // value if no pixel is in the triangle (we skip them), or the index of the pixel found in the triangle relative
   // to (cur_x, cur_y)
-  int next_index;
-  int last_index;
+  logic [$clog2(SCREEN_WIDTH*SCREEN_HEIGHT):0] next_index;
 
   // Incremental edge function!
   // So the edge function is defined as (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
@@ -170,8 +147,6 @@ module raster_shader #(
   assign delta_x_e2 = fixed_wide_sub(tri_y0, tri_y2);
   assign delta_y_e2 = fixed_wide_sub(tri_x2, tri_x0);
 
-  fixed_wide_t top_left_e0, top_left_e1, top_left_e2;
-
   // This is a lot of signals...
   // Finally, we need to *latch* the incremental edge function values between cycles
   // Including the row start one... it's worth the combinatorial save even if quite verbose
@@ -183,10 +158,16 @@ module raster_shader #(
   fixed_wide_t next_e0, next_e1, next_e2;
   fixed_wide_t next_e0_row_start, next_e1_row_start, next_e2_row_start;
 
-  // Next, for barycentric coords we need to know the total (signed) area of the tri to optimise
-  // TODO: Could pass this in from binner, since binner should calc it anyway for backface culling
-  fixed_wide_t tri_area;
-  assign tri_area = edge_function(tri_x0, tri_y0, tri_x1, tri_y1, tri_x2, tri_y2);
+  // Attribute interpolation
+  fixed_wide_t R_dx, R_dy;
+
+  // Initial attributes
+  fixed_wide_t cur_R;
+  fixed_wide_t cur_R_row_start;
+
+  // Combinatorial next values
+  fixed_wide_t next_R;
+  fixed_wide_t next_R_row_start;
 
   // For wrap checking in tile_next
   logic [$clog2(SCREEN_WIDTH):0] wrap_x;
@@ -201,83 +182,131 @@ module raster_shader #(
       int top_left_x;
       int top_left_y;
 
-      // Annoying but needed for slight combinatorial optimisation
-      fixed_wide_t e0;
-      fixed_wide_t e1;
-      fixed_wide_t e2;
-
       if (rst_i)
       begin
           state <= Idle;
           cur_index <= 0;
       end
       else
-          begin
-              state <= next_state;
+      begin
+        state <= next_state;
 
-          if (state == Idle && in_valid_i)
-          begin
-              // Start at the maximum of the bin's top-left index and the triangle's bounding-box minimum
-              // Compute as integers to avoid width/signedness surprises
-              top_left_x = (in_data_i.min_x > TOP_LEFT_X) ? in_data_i.min_x : TOP_LEFT_X;
-              top_left_y = (in_data_i.min_y > TOP_LEFT_Y) ? in_data_i.min_y : TOP_LEFT_Y;
+        if (state == Idle && in_valid_i)
+        begin
+          // Edge function values
+          fixed_wide_t e0, e1, e2;
+          // Attributes
+          fixed_wide_t r_attr, g_attr, b_attr;
+          // Needed for initial attribute calculation
+          fixed_wide_t x_rel, y_rel;
+          fixed_wide_t dyDR, dxDR;
 
-              cur_index <= int'(top_left_x) + int'(top_left_y) * SCREEN_WIDTH;
-              wrap_x <= top_left_x;
+          // Start at the maximum of the bin's top-left index and the triangle's bounding-box minimum
+          // Compute as integers to avoid width/signedness surprises
+          top_left_x = (in_data_i.min_x > TOP_LEFT_X) ? in_data_i.min_x : TOP_LEFT_X;
+          top_left_y = (in_data_i.min_y > TOP_LEFT_Y) ? in_data_i.min_y : TOP_LEFT_Y;
 
-              // Now, precompute edge function values at the top-left corner
-              // TODO: Optimise
-              cur_e0 <= edge_function(
-                  from_int(top_left_x), from_int(top_left_y), in_data_i.v0.x,
-                  in_data_i.v0.y, in_data_i.v1.x, in_data_i.v1.y
-              );
+          cur_index <= int'(top_left_x) + int'(top_left_y) * SCREEN_WIDTH;
+          wrap_x <= top_left_x;
 
-              cur_e1 <= edge_function(
-                  from_int(top_left_x), from_int(top_left_y), in_data_i.v1.x,
-                  in_data_i.v1.y, in_data_i.v2.x, in_data_i.v2.y
-              );
-              cur_e2 <= edge_function(
-                  from_int(top_left_x), from_int(top_left_y), in_data_i.v2.x,
-                  in_data_i.v2.y, in_data_i.v0.x, in_data_i.v0.y
-              );
+          x_rel = wide_from_int(top_left_x) - in_data_i.v0.x;
+          y_rel = wide_from_int(top_left_y) - in_data_i.v0.y;
 
-              cur_e0_row_start <= edge_function(
-                  from_int(top_left_x), from_int(top_left_y), in_data_i.v0.x,
-                  in_data_i.v0.y, in_data_i.v1.x, in_data_i.v1.y
-              );
+          // Now, precompute edge function values at the top-left corner
+          e0 = edge_function(
+              from_int(top_left_x), from_int(top_left_y), in_data_i.v0.x,
+              in_data_i.v0.y, in_data_i.v1.x, in_data_i.v1.y
+          );
 
-              cur_e1_row_start <= edge_function(
-                  from_int(top_left_x), from_int(top_left_y), in_data_i.v1.x,
-                  in_data_i.v1.y, in_data_i.v2.x, in_data_i.v2.y
-              );
-              cur_e2_row_start <= edge_function(
-                  from_int(top_left_x), from_int(top_left_y), in_data_i.v2.x,
-                  in_data_i.v2.y, in_data_i.v0.x, in_data_i.v0.y
-              );
+          e1 = edge_function(
+              from_int(top_left_x), from_int(top_left_y), in_data_i.v1.x,
+              in_data_i.v1.y, in_data_i.v2.x, in_data_i.v2.y
+          );
+          e2 = edge_function(
+              from_int(top_left_x), from_int(top_left_y), in_data_i.v2.x,
+              in_data_i.v2.y, in_data_i.v0.x, in_data_i.v0.y
+          );
 
-              // Finally, compute and latch the minimum index for termination
-              max_index <= in_data_i.max_x + (in_data_i.max_y) * SCREEN_WIDTH;
-              if (((TOP_LEFT_X + BIN_WIDTH) + (TOP_LEFT_Y + BIN_HEIGHT) * SCREEN_WIDTH) <=
-                    (in_data_i.max_x + (in_data_i.max_y) * SCREEN_WIDTH))
-                  max_index <= TOP_LEFT_X + (TOP_LEFT_Y + BIN_HEIGHT) * SCREEN_WIDTH;
+          cur_e0 <= e0;
+          cur_e1 <= e1;
+          cur_e2 <= e2;
 
-              cur_triangle <= in_data_i;
-          end
+          cur_e0_row_start <= e0;
+          cur_e1_row_start <= e1;
+          cur_e2_row_start <= e2;
 
-          // We can increment the current index if we're processing and either haven't output a pixel yet,
-          // or the output pixel has been accepted
-          else if (state == Processing && (!out_valid_o || out_ready_i))
-          begin
-              cur_index <= next_index;
+          $display("The triangle and all its attributes: V0: x %f, y %f, r %d, g %d, b %d; V1: x %f, y %f, r %d, g %d, b %d; V2: x %f, y %f, r %d, g %d, b %d; Min_x %d, Min_y %d, Max_x %d, Max_y %d, Inverse area %f",
+            wide_to_real(in_data_i.v0.x), wide_to_real(in_data_i.v0.y), in_data_i.v0.r, in_data_i.v0.g, in_data_i.v0.b,
+            wide_to_real(in_data_i.v1.x), wide_to_real(in_data_i.v1.y), in_data_i.v1.r, in_data_i.v1.g, in_data_i.v1.b,
+            wide_to_real(in_data_i.v2.x), wide_to_real(in_data_i.v2.y), in_data_i.v2.r, in_data_i.v2.g, in_data_i.v2.b,
+            in_data_i.min_x, in_data_i.min_y, in_data_i.max_x, in_data_i.max_y,
+            wide_to_real(in_data_i.inverse_area)
+          );
 
-              // Latch the updated edge function values
-              cur_e0 <= next_e0;
-              cur_e1 <= next_e1;
-              cur_e2 <= next_e2;
-              cur_e0_row_start <= next_e0_row_start;
-              cur_e1_row_start <= next_e1_row_start;
-              cur_e2_row_start <= next_e2_row_start;
-          end
+          // Initial attributes
+          // Delta attributes
+          $display("Term 1: R1 - R0: %d, Y0 - Y2: %f", in_data_i.v1.r - in_data_i.v0.r, wide_to_real(from_fixed(fixed_wide_sub(in_data_i.v0.y, in_data_i.v2.y))));
+          $display("Term 2: R2 - R0: %d, Y0 - Y1: %f", in_data_i.v2.r - in_data_i.v0.r, wide_to_real(from_fixed(fixed_wide_sub(in_data_i.v0.y, in_data_i.v1.y))));
+          $display("Their difference: %f", wide_to_real(fixed_wide_sub(
+                fixed_wide_mul(wide_from_int($signed(in_data_i.v1.r - in_data_i.v0.r)), 
+                    fixed_wide_sub(in_data_i.v0.y, in_data_i.v2.y)),
+                fixed_wide_mul(wide_from_int($signed(in_data_i.v2.r - in_data_i.v0.r)), 
+                    fixed_wide_sub(in_data_i.v0.y, in_data_i.v1.y))
+          )));
+          dxDR = fixed_wide_mul(
+            fixed_wide_sub(
+                fixed_wide_mul(wide_from_int($signed(in_data_i.v1.r - in_data_i.v0.r)), 
+                    fixed_wide_sub(in_data_i.v0.y, in_data_i.v2.y)),
+                fixed_wide_mul(wide_from_int($signed(in_data_i.v2.r - in_data_i.v0.r)), 
+                    fixed_wide_sub(in_data_i.v0.y, in_data_i.v1.y))
+            ),
+            in_data_i.inverse_area
+          );
+
+          dyDR = fixed_wide_mul(
+            fixed_wide_sub(
+                fixed_wide_mul(wide_from_int($signed(in_data_i.v2.r - in_data_i.v0.r)), 
+                    fixed_wide_sub(in_data_i.v0.x, in_data_i.v1.x)),
+                fixed_wide_mul(wide_from_int($signed(in_data_i.v1.r - in_data_i.v0.r)), 
+                    fixed_wide_sub(in_data_i.v0.x, in_data_i.v2.x))
+            ),
+            in_data_i.inverse_area
+          );
+
+          r_attr = wide_from_int(in_data_i.v0.r) + fixed_wide_mul(dxDR, x_rel) + fixed_wide_mul(dyDR, y_rel);
+          cur_R <= r_attr;
+          cur_R_row_start <= r_attr;
+          R_dx <= dxDR;
+          R_dy <= dyDR;
+
+          // Finally, compute and latch the minimum index for termination
+          max_index <= in_data_i.max_x + (in_data_i.max_y) * SCREEN_WIDTH;
+          if (((TOP_LEFT_X + BIN_WIDTH) + (TOP_LEFT_Y + BIN_HEIGHT) * SCREEN_WIDTH) <=
+              (in_data_i.max_x + (in_data_i.max_y) * SCREEN_WIDTH))
+              max_index <= TOP_LEFT_X + (TOP_LEFT_Y + BIN_HEIGHT) * SCREEN_WIDTH;
+
+          cur_triangle <= in_data_i;
+        end
+
+        // We can increment the current index if we're processing and either haven't output a pixel yet,
+        // or the output pixel has been accepted
+        else if (state == Processing && (!out_valid_o || out_ready_i))
+        begin
+            cur_index <= next_index;
+
+            // Latch the updated edge function values
+            cur_e0 <= next_e0;
+            cur_e1 <= next_e1;
+            cur_e2 <= next_e2;
+            cur_e0_row_start <= next_e0_row_start;
+            cur_e1_row_start <= next_e1_row_start;
+            cur_e2_row_start <= next_e2_row_start;
+
+            // $display("Interpolated R %f", to_real(next_R));
+
+            cur_R <= next_R;
+            cur_R_row_start <= next_R_row_start;
+        end
       end
   end
 
@@ -314,7 +343,7 @@ module raster_shader #(
   begin
       // Defaults
       in_ready_o = 0;
-      out_data_o = '{default: '{default: '0}};
+      // out_data_o = '{default: '{default: '0}};
       out_valid_o = 0;
       next_state = state;
 
@@ -332,6 +361,10 @@ module raster_shader #(
           int          candidate;
           logic        wrapped; // Flag to indicate if we've wrapped to next row
           fixed_wide_t e0, e1, e2, e0_row_start, e1_row_start, e2_row_start;
+          fixed_wide_t expected_e0, expected_e1, expected_e2;
+
+          // Attributes
+          fixed_wide_t r_attr, r_attr_row_start;
 
           candidate = cur_index;
           wrapped   = 0;
@@ -341,11 +374,15 @@ module raster_shader #(
           e1 = cur_e1;
           e2 = cur_e2;
 
+          r_attr = cur_R;
+
           // In the case of wrapping, we need to reset the edge function values to the start of the new row
           // Therefore we store the row-start values, and increment them upon wrapping
           e0_row_start = cur_e0_row_start;
           e1_row_start = cur_e1_row_start;
           e2_row_start = cur_e2_row_start;
+
+          r_attr_row_start = cur_R_row_start;
 
           next_index = cur_index; // default to current if nothing processed
           out_valid_o = 0;
@@ -360,11 +397,11 @@ module raster_shader #(
                   // (e0.value >= 0 && e1.value >= 0 && e2.value >= 0))
                   0)
               begin
-                  out_data_o = create_fragment(
-                      candidate % SCREEN_WIDTH, candidate / SCREEN_WIDTH,
-                      8'hFF, 8'hFF, 8'hFF, e0, e1, e2, tri_area
-                  );
-                  out_valid_o = 1;
+                out_data_o = create_fragment(
+                    candidate % SCREEN_WIDTH, candidate / SCREEN_WIDTH,
+                    to_int8(r_attr), 8'hFF, 8'hFF, e0, e1, e2
+                );
+                out_valid_o = 1;
               end
 
               // Advance candidate within tile bounds
@@ -378,15 +415,20 @@ module raster_shader #(
                   e1 = edge_function_update(e1_row_start, delta_y_e1);
                   e2 = edge_function_update(e2_row_start, delta_y_e2);
 
+                  r_attr = edge_function_update(r_attr_row_start, R_dy);
+
                   // Update row-start values for next row
                   e0_row_start = e0;
                   e1_row_start = e1;
                   e2_row_start = e2;
+                  r_attr_row_start = r_attr;
               end else begin
                   // Normal increment in x direction
                   e0 = edge_function_update(e0, delta_x_e0);
                   e1 = edge_function_update(e1, delta_x_e1);
                   e2 = edge_function_update(e2, delta_x_e2);
+
+                  r_attr = edge_function_update(r_attr, R_dx);
               end
           end
 
@@ -406,6 +448,8 @@ module raster_shader #(
           next_e0_row_start = e0_row_start;
           next_e1_row_start = e1_row_start;
           next_e2_row_start = e2_row_start;
+          next_R = r_attr;
+          next_R_row_start = r_attr_row_start;
         end
         default:
         begin

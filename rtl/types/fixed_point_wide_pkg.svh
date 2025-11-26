@@ -17,30 +17,44 @@
 package fixed_point_wide_pkg;
   import fixed_point_pkg::*;
 
-  typedef struct packed {logic signed [FIXED_WIDTH*2-1:0] value;} fixed_wide_t;
+  parameter int FIXED_WIDE_WIDTH = 60;
+  parameter int FIXED_WIDE_FRAC  = 22;
+
+  typedef struct packed {logic signed [FIXED_WIDE_WIDTH-1:0] value;} fixed_wide_t;
 
   function automatic fixed_wide_t from_fixed(fixed_t f);
     fixed_wide_t w;
-    w.value = {{FIXED_WIDTH{f.value[FIXED_WIDTH-1]}}, f.value};
+    localparam int SHIFT = FIXED_WIDE_FRAC - FIXED_FRAC;
+
+    // Sign-extend the input fixed point value since the point is in a new position
+    logic signed [FIXED_WIDE_WIDTH-1:0] ext;
+    ext = {{(FIXED_WIDE_WIDTH-FIXED_WIDTH){f.value[FIXED_WIDTH-1]}}, f.value};
+
+    w.value = ext <<< SHIFT;
     return w;
   endfunction
 
-  function automatic fixed_wide_t from_int(int signed f);
+  function automatic fixed_wide_t wide_from_int(int i);
     fixed_wide_t w;
-    w.value = $signed(f) <<< FIXED_FRAC;
+    w.value = i <<< FIXED_WIDE_FRAC;
+    return w;
+  endfunction
 
+  function automatic fixed_wide_t wide_from_real(real r);
+    fixed_wide_t w;
+    w.value = $rtoi(r * (1 << FIXED_WIDE_FRAC));
     return w;
   endfunction
 
   // TODO: delete
   function automatic logic [7:0] to_int8(fixed_wide_t f);
-    logic signed [FIXED_WIDTH*2-1:0] shifted;
-    shifted = f.value >>> FIXED_FRAC;
+    logic signed [FIXED_WIDE_WIDTH-1:0] shifted;
+    shifted = f.value >>> FIXED_WIDE_FRAC;
     return shifted[7:0];
   endfunction
 
   function automatic real wide_to_real(fixed_wide_t f);
-    return real'(f.value) / real'(1 << FIXED_FRAC);
+    return real'(f.value) / real'(1 << FIXED_WIDE_FRAC);
   endfunction
 
   // Arithmetic needed: sub and mult
@@ -64,14 +78,18 @@ package fixed_point_wide_pkg;
 
   function automatic fixed_wide_t fixed_wide_mul(fixed_wide_t a, fixed_wide_t b);
     fixed_wide_t result;
+    // Extra size needed to hold full product
+    logic signed [(2*FIXED_WIDE_WIDTH)-1:0] full;
     // Multiply and adjust for fixed point fractional bits
-    result.value = (a.value * b.value) >>> (FIXED_FRAC);
+    full = a.value * b.value;
+    result.value = full >>> (FIXED_WIDE_FRAC);
+
     return result;
   endfunction
 
   function automatic fixed_wide_t fixed_wide_div(fixed_wide_t a, fixed_wide_t b);
     fixed_wide_t result;
-    result.value = (a.value <<< FIXED_FRAC) / b.value;
+    result.value = (a.value <<< FIXED_WIDE_FRAC) / b.value;
     return result;
   endfunction
 
