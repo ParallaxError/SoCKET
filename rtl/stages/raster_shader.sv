@@ -6,7 +6,7 @@
  * Fragments are output in pixel buffer format to be fragment shaded, then written to the output FIFO aggregator.
  *
  * -----
- * Last Modified: Sunday, 23rd November 2025 9:09 pm
+ * Last Modified: Thursday, 27th November 2025 1:46 pm
  * -----
  */
 
@@ -56,38 +56,17 @@ module raster_shader #(
     int pixel_index;
     // Initialize to zero
     // frag = '{default: '{default: '0}};
+    
     // Divide by pixels per word to get x,y in the pixel buffer
     pixel_index = pixel_x % PIXELS_PER_WORD;
 
     frag.x = pixel_x;
     frag.y = pixel_y;
 
-    // Now, let's try Barycentric coordinates to interpolate colour
-    // First, calculate lambdas as e/area
-    // lambda0 = fixed_wide_div(e1, area);
-    // lambda1 = fixed_wide_div(e2, area);
-    // lambda2 = fixed_wide_div(e0, area);
-    lambda0 = e0;
-    lambda1 = e1;
-    lambda2 = e2;
-
-    // Next, we (stupidly but fix later) promote the colours to wide fixed point for interpolation and sum them
-    r_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.r), lambda0),
-                                            fixed_wide_mul(from_int(cur_triangle.v1.r), lambda1)),
-                                            fixed_wide_mul(from_int(cur_triangle.v2.r), lambda2));
-
-    g_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.g), lambda0),
-                                            fixed_wide_mul(from_int(cur_triangle.v1.g), lambda1)),
-                                            fixed_wide_mul(from_int(cur_triangle.v2.g), lambda2));
-
-    b_wide = fixed_wide_add(fixed_wide_add(fixed_wide_mul(from_int(cur_triangle.v0.b), lambda0),
-                                            fixed_wide_mul(from_int(cur_triangle.v1.b), lambda1)),
-                                            fixed_wide_mul(from_int(cur_triangle.v2.b), lambda2));
-
     // Finally, truncate and shift to (5, 6, 5) bits
     frag.r = r;
-    frag.g = to_int8(g_wide);
-    frag.b = to_int8(b_wide);
+    frag.g = g;
+    frag.b = b;
 
     return frag;
   endfunction
@@ -160,14 +139,16 @@ module raster_shader #(
 
   // Attribute interpolation
   fixed_wide_t R_dx, R_dy;
+  fixed_wide_t G_dx, G_dy;
+  fixed_wide_t B_dx, B_dy;
 
   // Initial attributes
-  fixed_wide_t cur_R;
-  fixed_wide_t cur_R_row_start;
+  fixed_wide_t cur_R, cur_G, cur_B;
+  fixed_wide_t cur_R_row_start, cur_G_row_start, cur_B_row_start;
 
   // Combinatorial next values
-  fixed_wide_t next_R;
-  fixed_wide_t next_R_row_start;
+  fixed_wide_t next_R, next_G, next_B;
+  fixed_wide_t next_R_row_start, next_G_row_start, next_B_row_start;
 
   // For wrap checking in tile_next
   logic [$clog2(SCREEN_WIDTH):0] wrap_x;
@@ -199,7 +180,7 @@ module raster_shader #(
           fixed_wide_t r_attr, g_attr, b_attr;
           // Needed for initial attribute calculation
           fixed_wide_t x_rel, y_rel;
-          fixed_wide_t dyDR, dxDR;
+          fixed_wide_t dyDR, dxDR, dyDG, dxDG, dyDB, dxDB;
 
           // Start at the maximum of the bin's top-left index and the triangle's bounding-box minimum
           // Compute as integers to avoid width/signedness surprises
@@ -209,8 +190,8 @@ module raster_shader #(
           cur_index <= int'(top_left_x) + int'(top_left_y) * SCREEN_WIDTH;
           wrap_x <= top_left_x;
 
-          x_rel = wide_from_int(top_left_x) - in_data_i.v0.x;
-          y_rel = wide_from_int(top_left_y) - in_data_i.v0.y;
+          x_rel = from_fixed(fixed_point_sub(from_int(top_left_x), in_data_i.v0.x));
+          y_rel = from_fixed(fixed_point_sub(from_int(top_left_y), in_data_i.v0.y));
 
           // Now, precompute edge function values at the top-left corner
           e0 = edge_function(
@@ -235,49 +216,76 @@ module raster_shader #(
           cur_e1_row_start <= e1;
           cur_e2_row_start <= e2;
 
-          $display("The triangle and all its attributes: V0: x %f, y %f, r %d, g %d, b %d; V1: x %f, y %f, r %d, g %d, b %d; V2: x %f, y %f, r %d, g %d, b %d; Min_x %d, Min_y %d, Max_x %d, Max_y %d, Inverse area %f",
-            wide_to_real(in_data_i.v0.x), wide_to_real(in_data_i.v0.y), in_data_i.v0.r, in_data_i.v0.g, in_data_i.v0.b,
-            wide_to_real(in_data_i.v1.x), wide_to_real(in_data_i.v1.y), in_data_i.v1.r, in_data_i.v1.g, in_data_i.v1.b,
-            wide_to_real(in_data_i.v2.x), wide_to_real(in_data_i.v2.y), in_data_i.v2.r, in_data_i.v2.g, in_data_i.v2.b,
-            in_data_i.min_x, in_data_i.min_y, in_data_i.max_x, in_data_i.max_y,
-            wide_to_real(in_data_i.inverse_area)
-          );
-
           // Initial attributes
           // Delta attributes
-          $display("Term 1: R1 - R0: %d, Y0 - Y2: %f", in_data_i.v1.r - in_data_i.v0.r, wide_to_real(from_fixed(fixed_wide_sub(in_data_i.v0.y, in_data_i.v2.y))));
-          $display("Term 2: R2 - R0: %d, Y0 - Y1: %f", in_data_i.v2.r - in_data_i.v0.r, wide_to_real(from_fixed(fixed_wide_sub(in_data_i.v0.y, in_data_i.v1.y))));
-          $display("Their difference: %f", wide_to_real(fixed_wide_sub(
-                fixed_wide_mul(wide_from_int($signed(in_data_i.v1.r - in_data_i.v0.r)), 
-                    fixed_wide_sub(in_data_i.v0.y, in_data_i.v2.y)),
-                fixed_wide_mul(wide_from_int($signed(in_data_i.v2.r - in_data_i.v0.r)), 
-                    fixed_wide_sub(in_data_i.v0.y, in_data_i.v1.y))
-          )));
-          dxDR = fixed_wide_mul(
-            fixed_wide_sub(
-                fixed_wide_mul(wide_from_int($signed(in_data_i.v1.r - in_data_i.v0.r)), 
-                    fixed_wide_sub(in_data_i.v0.y, in_data_i.v2.y)),
-                fixed_wide_mul(wide_from_int($signed(in_data_i.v2.r - in_data_i.v0.r)), 
-                    fixed_wide_sub(in_data_i.v0.y, in_data_i.v1.y))
-            ),
-            in_data_i.inverse_area
-          );
+          // Macro for interpolating integer attributes
+          `define ATTR_DX(name) \
+              fixed_wide_mul( \
+                  fixed_wide_sub( \
+                      fixed_wide_mul( \
+                          wide_from_int( \
+                              $signed({1'b0, in_data_i.v1.name}) - \
+                              $signed({1'b0, in_data_i.v0.name}) \
+                          ), \
+                          from_fixed(fixed_point_sub(in_data_i.v0.y, in_data_i.v2.y)) \
+                      ), \
+                      fixed_wide_mul( \
+                          wide_from_int( \
+                              $signed({1'b0, in_data_i.v2.name}) - \
+                              $signed({1'b0, in_data_i.v0.name}) \
+                          ), \
+                          from_fixed(fixed_point_sub(in_data_i.v0.y, in_data_i.v1.y)) \
+                      ) \
+                  ), \
+                  in_data_i.inverse_area \
+              )
 
-          dyDR = fixed_wide_mul(
-            fixed_wide_sub(
-                fixed_wide_mul(wide_from_int($signed(in_data_i.v2.r - in_data_i.v0.r)), 
-                    fixed_wide_sub(in_data_i.v0.x, in_data_i.v1.x)),
-                fixed_wide_mul(wide_from_int($signed(in_data_i.v1.r - in_data_i.v0.r)), 
-                    fixed_wide_sub(in_data_i.v0.x, in_data_i.v2.x))
-            ),
-            in_data_i.inverse_area
-          );
+          `define ATTR_DY(name) \
+              fixed_wide_mul( \
+                  fixed_wide_sub( \
+                      fixed_wide_mul( \
+                          wide_from_int( \
+                              $signed({1'b0, in_data_i.v2.name}) - \
+                              $signed({1'b0, in_data_i.v0.name}) \
+                          ), \
+                          from_fixed(fixed_point_sub(in_data_i.v0.x, in_data_i.v1.x)) \
+                      ), \
+                      fixed_wide_mul( \
+                          wide_from_int( \
+                              $signed({1'b0, in_data_i.v1.name}) - \
+                              $signed({1'b0, in_data_i.v0.name}) \
+                          ), \
+                          from_fixed(fixed_point_sub(in_data_i.v0.x, in_data_i.v2.x)) \
+                      ) \
+                  ), \
+                  in_data_i.inverse_area \
+              )
+
+          dxDR = `ATTR_DX(r);
+          dyDR = `ATTR_DY(r);
+          dxDG = `ATTR_DX(g);
+          dyDG = `ATTR_DY(g);
+          dxDB = `ATTR_DX(b);
+          dyDB = `ATTR_DY(b);
 
           r_attr = wide_from_int(in_data_i.v0.r) + fixed_wide_mul(dxDR, x_rel) + fixed_wide_mul(dyDR, y_rel);
+          g_attr = wide_from_int(in_data_i.v0.g) + fixed_wide_mul(dxDG, x_rel) + fixed_wide_mul(dyDG, y_rel);
+          b_attr = wide_from_int(in_data_i.v0.b) + fixed_wide_mul(dxDB, x_rel) + fixed_wide_mul(dyDB, y_rel);
+
           cur_R <= r_attr;
+          cur_G <= g_attr;
+          cur_B <= b_attr;
+
           cur_R_row_start <= r_attr;
+          cur_G_row_start <= g_attr;
+          cur_B_row_start <= b_attr;
+
           R_dx <= dxDR;
           R_dy <= dyDR;
+          G_dx <= dxDG;
+          G_dy <= dyDG;
+          B_dx <= dxDB;
+          B_dy <= dyDB;
 
           // Finally, compute and latch the minimum index for termination
           max_index <= in_data_i.max_x + (in_data_i.max_y) * SCREEN_WIDTH;
@@ -302,10 +310,12 @@ module raster_shader #(
             cur_e1_row_start <= next_e1_row_start;
             cur_e2_row_start <= next_e2_row_start;
 
-            // $display("Interpolated R %f", to_real(next_R));
-
             cur_R <= next_R;
+            cur_G <= next_G;
+            cur_B <= next_B;
             cur_R_row_start <= next_R_row_start;
+            cur_G_row_start <= next_G_row_start;
+            cur_B_row_start <= next_B_row_start;
         end
       end
   end
@@ -328,7 +338,7 @@ module raster_shader #(
 
   // Helper: Incremental edge function update
   // Given the previous edge function value at (x, y), compute the edge function at (x + 1, y)
-  function automatic fixed_wide_t edge_function_update(
+  function automatic fixed_wide_t attribute_update(
       input fixed_wide_t prev, input fixed_wide_t delta
   );
       return fixed_wide_add(prev, delta);
@@ -364,7 +374,8 @@ module raster_shader #(
           fixed_wide_t expected_e0, expected_e1, expected_e2;
 
           // Attributes
-          fixed_wide_t r_attr, r_attr_row_start;
+          fixed_wide_t r_attr, g_attr, b_attr;
+          fixed_wide_t r_attr_row_start, g_attr_row_start, b_attr_row_start;
 
           candidate = cur_index;
           wrapped   = 0;
@@ -375,6 +386,8 @@ module raster_shader #(
           e2 = cur_e2;
 
           r_attr = cur_R;
+          g_attr = cur_G;
+          b_attr = cur_B;
 
           // In the case of wrapping, we need to reset the edge function values to the start of the new row
           // Therefore we store the row-start values, and increment them upon wrapping
@@ -383,6 +396,8 @@ module raster_shader #(
           e2_row_start = cur_e2_row_start;
 
           r_attr_row_start = cur_R_row_start;
+          g_attr_row_start = cur_G_row_start;
+          b_attr_row_start = cur_B_row_start;
 
           next_index = cur_index; // default to current if nothing processed
           out_valid_o = 0;
@@ -399,7 +414,7 @@ module raster_shader #(
               begin
                 out_data_o = create_fragment(
                     candidate % SCREEN_WIDTH, candidate / SCREEN_WIDTH,
-                    to_int8(r_attr), 8'hFF, 8'hFF, e0, e1, e2
+                    to_int8(r_attr), to_int8(g_attr), to_int8(b_attr), e0, e1, e2
                 );
                 out_valid_o = 1;
               end
@@ -411,24 +426,30 @@ module raster_shader #(
               // First we need to check if we have wrapped to the next row
               if (wrapped) begin
                   // Reset to row-start values and increment by delta_y
-                  e0 = edge_function_update(e0_row_start, delta_y_e0);
-                  e1 = edge_function_update(e1_row_start, delta_y_e1);
-                  e2 = edge_function_update(e2_row_start, delta_y_e2);
+                  e0 = attribute_update(e0_row_start, delta_y_e0);
+                  e1 = attribute_update(e1_row_start, delta_y_e1);
+                  e2 = attribute_update(e2_row_start, delta_y_e2);
 
-                  r_attr = edge_function_update(r_attr_row_start, R_dy);
+                  r_attr = attribute_update(r_attr_row_start, R_dy);
+                  g_attr = attribute_update(g_attr_row_start, G_dy);
+                  b_attr = attribute_update(b_attr_row_start, B_dy);
 
                   // Update row-start values for next row
                   e0_row_start = e0;
                   e1_row_start = e1;
                   e2_row_start = e2;
                   r_attr_row_start = r_attr;
+                  g_attr_row_start = g_attr;
+                  b_attr_row_start = b_attr;
               end else begin
                   // Normal increment in x direction
-                  e0 = edge_function_update(e0, delta_x_e0);
-                  e1 = edge_function_update(e1, delta_x_e1);
-                  e2 = edge_function_update(e2, delta_x_e2);
+                  e0 = attribute_update(e0, delta_x_e0);
+                  e1 = attribute_update(e1, delta_x_e1);
+                  e2 = attribute_update(e2, delta_x_e2);
 
-                  r_attr = edge_function_update(r_attr, R_dx);
+                  r_attr = attribute_update(r_attr, R_dx);
+                  g_attr = attribute_update(g_attr, G_dx);
+                  b_attr = attribute_update(b_attr, B_dx);
               end
           end
 
@@ -441,7 +462,7 @@ module raster_shader #(
           end else
               next_index = candidate;
 
-          // Finally, we need to latch the updated edge function values
+          // Finally, we need to preserve the edge function and attribute values to be latched
           next_e0 = e0;
           next_e1 = e1;
           next_e2 = e2;
@@ -449,7 +470,11 @@ module raster_shader #(
           next_e1_row_start = e1_row_start;
           next_e2_row_start = e2_row_start;
           next_R = r_attr;
+          next_G = g_attr;
+          next_B = b_attr;
           next_R_row_start = r_attr_row_start;
+          next_G_row_start = g_attr_row_start;
+          next_B_row_start = b_attr_row_start;
         end
         default:
         begin

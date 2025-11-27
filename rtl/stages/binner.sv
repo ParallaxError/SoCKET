@@ -5,7 +5,7 @@
  * Aggregates input vertices into triangles and assigns them to screen-space bins for rasterization.
  *
  * -----
- * Last Modified: Tuesday, 25th November 2025 11:51 am
+ * Last Modified: Wednesday, 26th November 2025 9:46 pm
  * -----
  */
 
@@ -103,7 +103,7 @@ module binner #(
         // Latch and calculate edge area when moving to CalculatingBounds
         if (next_state == CalculatingBounds) begin
           // Can't use aggregated_triangle here since it'll be latched *this* cycle
-          area_reg = edge_function(
+          area_reg <= edge_function(
             aggregated_triangle.v0.x, aggregated_triangle.v0.y,
             aggregated_triangle.v1.x, aggregated_triangle.v1.y,
             in_vert_data_i.x, in_vert_data_i.y

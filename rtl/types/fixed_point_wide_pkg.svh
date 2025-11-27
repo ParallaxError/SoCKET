@@ -5,7 +5,7 @@
  * Used for calculations like the edge functions in rasterization to avoid overflow.
  *
  * -----
- * Last Modified: Saturday, 22nd November 2025 11:36 pm
+ * Last Modified: Thursday, 27th November 2025 12:58 pm
  * -----
  */
 
@@ -17,8 +17,8 @@
 package fixed_point_wide_pkg;
   import fixed_point_pkg::*;
 
-  parameter int FIXED_WIDE_WIDTH = 60;
-  parameter int FIXED_WIDE_FRAC  = 22;
+  parameter int FIXED_WIDE_WIDTH = 45;
+  parameter int FIXED_WIDE_FRAC  = 27;
 
   typedef struct packed {logic signed [FIXED_WIDE_WIDTH-1:0] value;} fixed_wide_t;
 
@@ -46,7 +46,6 @@ package fixed_point_wide_pkg;
     return w;
   endfunction
 
-  // TODO: delete
   function automatic logic [7:0] to_int8(fixed_wide_t f);
     logic signed [FIXED_WIDE_WIDTH-1:0] shifted;
     shifted = f.value >>> FIXED_WIDE_FRAC;
