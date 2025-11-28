@@ -5,7 +5,7 @@
  * Each triangle consists of 3 vertices, but also the bounding boxes of the triangle for efficient rasterization.
  *
  * -----
- * Last Modified: Thursday, 27th November 2025 10:21 pm
+ * Last Modified: Friday, 28th November 2025 1:03 am
  * -----
  */
 
@@ -30,8 +30,13 @@ package triangle_pkg;
     vertex_t v1;
     vertex_t v2;
 
-    // Inverse of area for colour interpolation
-    fixed_wide_t inverse_area;
+    // Deltas for edge functions and attributes
+    fixed_wide_t R_dx;
+    fixed_wide_t R_dy;
+    fixed_wide_t G_dx;
+    fixed_wide_t G_dy;
+    fixed_wide_t B_dx;
+    fixed_wide_t B_dy;
 
     // Bounding box for the triangle
     logic [$clog2(SCREEN_WIDTH) - 1:0]  min_x;

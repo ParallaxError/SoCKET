@@ -6,7 +6,7 @@
  * Fragments are output in pixel buffer format to be fragment shaded, then written to the output FIFO aggregator.
  *
  * -----
- * Last Modified: Thursday, 27th November 2025 10:21 pm
+ * Last Modified: Friday, 28th November 2025 3:03 am
  * -----
  */
 
@@ -15,6 +15,7 @@
 `include "types/rendering_pkg.svh"
 `include "types/pixels_pkg.svh"
 `include "types/triangle_pkg.svh"
+`include "types/triangle_attribute_pkg.svh"
 `include "types/fragment_pkg.svh"
 
 module raster_shader #(
@@ -23,18 +24,28 @@ module raster_shader #(
     parameter int PIXELS_PER_CYCLE = 1
 )
 (
-    input  logic                    clk_i,
-    input  logic                    rst_i,
+    input  logic                                         clk_i,
+    input  logic                                         rst_i,
 
     // input streaming iface
-    output logic                    in_ready_o,
-    input  triangle_pkg::triangle_t in_data_i,
-    input  logic                    in_valid_i,
+    output logic                                         in_ready_o,
+    input  triangle_pkg::triangle_t                      in_data_i,
+    input  logic                                         in_valid_i,
+
+    // Initial attributes from initial_attributes module
+    // TODO: Should incorporate if attributes module is ready for input
+    output logic                                         in_attrs_ready_o,
+    output logic                                         attrs_triangle_valid_o,
+    output  triangle_pkg::triangle_t                     attrs_triangle_o,
+    output integer                                       attrs_bin_x_o,
+    output integer                                       attrs_bin_y_o,
+    input  logic                                         in_attrs_valid_i,
+    input  triangle_attribute_pkg::triangle_attributes_t in_attrs_i,
 
     // output streaming iface
-    input  logic                    out_ready_i,
-    output fragment_pkg::fragment_t out_data_o,
-    output logic                    out_valid_o
+    input  logic                                         out_ready_i,
+    output fragment_pkg::fragment_t                      out_data_o,
+    output logic                                         out_valid_o
 );
   // Imports
   import rendering_pkg::*;
@@ -87,6 +98,7 @@ module raster_shader #(
   // Horribly pipelined, but works for now
   typedef enum logic [1:0] {
       Idle,
+      InitialisingAttributes,
       Processing
   } state_e;
 
@@ -137,11 +149,6 @@ module raster_shader #(
   fixed_wide_t next_e0, next_e1, next_e2;
   fixed_wide_t next_e0_row_start, next_e1_row_start, next_e2_row_start;
 
-  // Attribute interpolation
-  fixed_wide_t R_dx, R_dy;
-  fixed_wide_t G_dx, G_dy;
-  fixed_wide_t B_dx, B_dy;
-
   // Initial attributes
   fixed_wide_t cur_R, cur_G, cur_B;
   fixed_wide_t cur_R_row_start, cur_G_row_start, cur_B_row_start;
@@ -174,13 +181,8 @@ module raster_shader #(
 
         if (state == Idle && in_valid_i)
         begin
-          // Edge function values
-          fixed_wide_t e0, e1, e2;
-          // Attributes
-          fixed_wide_t r_attr, g_attr, b_attr;
           // Needed for initial attribute calculation
           fixed_wide_t x_rel, y_rel;
-          fixed_wide_t dyDR, dxDR, dyDG, dxDG, dyDB, dxDB;
 
           // Start at the maximum of the bin's top-left index and the triangle's bounding-box minimum
           // Compute as integers to avoid width/signedness surprises
@@ -190,102 +192,9 @@ module raster_shader #(
           cur_index <= int'(top_left_x) + int'(top_left_y) * SCREEN_WIDTH;
           wrap_x <= top_left_x;
 
-          x_rel = from_fixed(fixed_point_sub(from_int(top_left_x), in_data_i.v0.x));
-          y_rel = from_fixed(fixed_point_sub(from_int(top_left_y), in_data_i.v0.y));
-
-          // Now, precompute edge function values at the top-left corner
-          e0 = edge_function(
-              from_int(top_left_x), from_int(top_left_y), in_data_i.v0.x,
-              in_data_i.v0.y, in_data_i.v1.x, in_data_i.v1.y
-          );
-
-          e1 = edge_function(
-              from_int(top_left_x), from_int(top_left_y), in_data_i.v1.x,
-              in_data_i.v1.y, in_data_i.v2.x, in_data_i.v2.y
-          );
-          e2 = edge_function(
-              from_int(top_left_x), from_int(top_left_y), in_data_i.v2.x,
-              in_data_i.v2.y, in_data_i.v0.x, in_data_i.v0.y
-          );
-
-          cur_e0 <= e0;
-          cur_e1 <= e1;
-          cur_e2 <= e2;
-
-          cur_e0_row_start <= e0;
-          cur_e1_row_start <= e1;
-          cur_e2_row_start <= e2;
-
-          // Initial attributes
-          // Delta attributes
-          // Macro for interpolating integer attributes
-          `define ATTR_DX(name) \
-              fixed_wide_mul( \
-                  fixed_wide_sub( \
-                      fixed_wide_mul( \
-                          wide_from_int( \
-                              $signed({1'b0, in_data_i.v1.name}) - \
-                              $signed({1'b0, in_data_i.v0.name}) \
-                          ), \
-                          from_fixed(fixed_point_sub(in_data_i.v0.y, in_data_i.v2.y)) \
-                      ), \
-                      fixed_wide_mul( \
-                          wide_from_int( \
-                              $signed({1'b0, in_data_i.v2.name}) - \
-                              $signed({1'b0, in_data_i.v0.name}) \
-                          ), \
-                          from_fixed(fixed_point_sub(in_data_i.v0.y, in_data_i.v1.y)) \
-                      ) \
-                  ), \
-                  in_data_i.inverse_area \
-              )
-
-          `define ATTR_DY(name) \
-              fixed_wide_mul( \
-                  fixed_wide_sub( \
-                      fixed_wide_mul( \
-                          wide_from_int( \
-                              $signed({1'b0, in_data_i.v2.name}) - \
-                              $signed({1'b0, in_data_i.v0.name}) \
-                          ), \
-                          from_fixed(fixed_point_sub(in_data_i.v0.x, in_data_i.v1.x)) \
-                      ), \
-                      fixed_wide_mul( \
-                          wide_from_int( \
-                              $signed({1'b0, in_data_i.v1.name}) - \
-                              $signed({1'b0, in_data_i.v0.name}) \
-                          ), \
-                          from_fixed(fixed_point_sub(in_data_i.v0.x, in_data_i.v2.x)) \
-                      ) \
-                  ), \
-                  in_data_i.inverse_area \
-              )
-
-          dxDR = `ATTR_DX(r);
-          dyDR = `ATTR_DY(r);
-          dxDG = `ATTR_DX(g);
-          dyDG = `ATTR_DY(g);
-          dxDB = `ATTR_DX(b);
-          dyDB = `ATTR_DY(b);
-
-          r_attr = wide_from_int(in_data_i.v0.r) + fixed_wide_mul(dxDR, x_rel) + fixed_wide_mul(dyDR, y_rel);
-          g_attr = wide_from_int(in_data_i.v0.g) + fixed_wide_mul(dxDG, x_rel) + fixed_wide_mul(dyDG, y_rel);
-          b_attr = wide_from_int(in_data_i.v0.b) + fixed_wide_mul(dxDB, x_rel) + fixed_wide_mul(dyDB, y_rel);
-
-          cur_R <= r_attr;
-          cur_G <= g_attr;
-          cur_B <= b_attr;
-
-          cur_R_row_start <= r_attr;
-          cur_G_row_start <= g_attr;
-          cur_B_row_start <= b_attr;
-
-          R_dx <= dxDR;
-          R_dy <= dyDR;
-          G_dx <= dxDG;
-          G_dy <= dyDG;
-          B_dx <= dxDB;
-          B_dy <= dyDB;
+          // Set output of attributes module
+          attrs_bin_x_o <= top_left_x;
+          attrs_bin_y_o <= top_left_y;
 
           // Finally, compute and latch the minimum index for termination
           max_index <= in_data_i.max_x + (in_data_i.max_y) * SCREEN_WIDTH;
@@ -295,7 +204,25 @@ module raster_shader #(
 
           cur_triangle <= in_data_i;
         end
+        else if (state == InitialisingAttributes && in_attrs_valid_i)
+        begin
+          // Latch attributes
+          cur_e0 <= in_attrs_i.e0;
+          cur_e1 <= in_attrs_i.e1;
+          cur_e2 <= in_attrs_i.e2;
 
+          cur_e0_row_start <= in_attrs_i.e0;
+          cur_e1_row_start <= in_attrs_i.e1;
+          cur_e2_row_start <= in_attrs_i.e2;
+
+          cur_R <= in_attrs_i.R_start;
+          cur_G <= in_attrs_i.G_start;
+          cur_B <= in_attrs_i.B_start;
+
+          cur_R_row_start <= in_attrs_i.R_start;
+          cur_G_row_start <= in_attrs_i.G_start;
+          cur_B_row_start <= in_attrs_i.B_start;
+        end
         // We can increment the current index if we're processing and either haven't output a pixel yet,
         // or the output pixel has been accepted
         else if (state == Processing && (!out_valid_o || out_ready_i))
@@ -356,22 +283,30 @@ module raster_shader #(
       // out_data_o = '{default: '{default: '0}};
       out_valid_o = 0;
       next_state = state;
+      attrs_triangle_o = cur_triangle;
 
       case (state)
         Idle:
         begin
-            in_ready_o = 1;
-            if (in_valid_i)
-                next_state = Processing;
+          in_ready_o = 1;
+          if (in_valid_i)
+              next_state = InitialisingAttributes;
         end
+        InitialisingAttributes:
+        begin
+          // Wait for attributes to be valid
+          in_attrs_ready_o = 1;
+          attrs_triangle_valid_o = 1;
 
+          if (in_attrs_valid_i)
+              next_state = Processing;
+        end
         Processing:
         begin
           // We process up to PIXELS_PER_CYCLE pixels this cycle, advancing within the tile
           int          candidate;
           logic        wrapped; // Flag to indicate if we've wrapped to next row
           fixed_wide_t e0, e1, e2, e0_row_start, e1_row_start, e2_row_start;
-          fixed_wide_t expected_e0, expected_e1, expected_e2;
 
           // Attributes
           fixed_wide_t r_attr, g_attr, b_attr;
@@ -430,9 +365,9 @@ module raster_shader #(
                   e1 = attribute_update(e1_row_start, delta_y_e1);
                   e2 = attribute_update(e2_row_start, delta_y_e2);
 
-                  r_attr = attribute_update(r_attr_row_start, R_dy);
-                  g_attr = attribute_update(g_attr_row_start, G_dy);
-                  b_attr = attribute_update(b_attr_row_start, B_dy);
+                  r_attr = attribute_update(r_attr_row_start, cur_triangle.R_dy);
+                  g_attr = attribute_update(g_attr_row_start, cur_triangle.G_dy);
+                  b_attr = attribute_update(b_attr_row_start, cur_triangle.B_dy);
 
                   // Update row-start values for next row
                   e0_row_start = e0;
@@ -447,9 +382,9 @@ module raster_shader #(
                   e1 = attribute_update(e1, delta_x_e1);
                   e2 = attribute_update(e2, delta_x_e2);
 
-                  r_attr = attribute_update(r_attr, R_dx);
-                  g_attr = attribute_update(g_attr, G_dx);
-                  b_attr = attribute_update(b_attr, B_dx);
+                  r_attr = attribute_update(r_attr, cur_triangle.R_dx);
+                  g_attr = attribute_update(g_attr, cur_triangle.G_dx);
+                  b_attr = attribute_update(b_attr, cur_triangle.B_dx);
               end
           end
 

@@ -5,7 +5,7 @@
  * Aggregates input vertices into triangles and assigns them to screen-space bins for rasterization.
  *
  * -----
- * Last Modified: Thursday, 27th November 2025 9:41 pm
+ * Last Modified: Friday, 28th November 2025 1:08 am
  * -----
  */
 
@@ -44,10 +44,11 @@ module binner #(
   // Currently split into 3 phases
   // TODO: Check critical path to divide accordingly
   // TODO: Check for backfacing triangles (signed area negative)
-  typedef enum logic [1:0] {
+  typedef enum logic [2:0] {
     Aggregating,
     CalculatingBounds,
     WaitingForDivider,
+    CalculatingDeltas,
     Done
   } state_e;
 
@@ -66,6 +67,7 @@ module binner #(
   // Reciprocal signals
   fixed_wide_t area_reg;
   fixed_wide_t div_output;
+  fixed_wide_t inverse_area_reg;
   logic   div_in_valid;
   logic   div_out_valid;
   logic   div_ready;
@@ -214,12 +216,65 @@ module binner #(
         // When reciprocal output valid, latch it and move to Done
         if (div_out_valid) begin
           // Latch inverse area
-          next_out_data.inverse_area = div_output;
+          inverse_area_reg = div_output;
           if ($signed(div_output.value) < 0)
             next_state = Aggregating; // Backfacing triangle, discard
           else
-            next_state = Done;
+            next_state = CalculatingDeltas;
         end
+      end
+      CalculatingDeltas: begin
+        // Macros for delta calculations
+        `define ATTR_DX(name) \
+            fixed_wide_mul( \
+                fixed_wide_sub( \
+                    fixed_wide_mul( \
+                        wide_from_int( \
+                            $signed({1'b0, aggregated_triangle.v1.name}) - \
+                            $signed({1'b0, aggregated_triangle.v0.name}) \
+                        ), \
+                        from_fixed(fixed_point_sub(aggregated_triangle.v0.y, aggregated_triangle.v2.y)) \
+                    ), \
+                    fixed_wide_mul( \
+                        wide_from_int( \
+                            $signed({1'b0, aggregated_triangle.v2.name}) - \
+                            $signed({1'b0, aggregated_triangle.v0.name}) \
+                        ), \
+                        from_fixed(fixed_point_sub(aggregated_triangle.v0.y, aggregated_triangle.v1.y)) \
+                    ) \
+                ), \
+                inverse_area_reg \
+            )
+
+        `define ATTR_DY(name) \
+            fixed_wide_mul( \
+                fixed_wide_sub( \
+                    fixed_wide_mul( \
+                        wide_from_int( \
+                            $signed({1'b0, aggregated_triangle.v2.name}) - \
+                            $signed({1'b0, aggregated_triangle.v0.name}) \
+                        ), \
+                        from_fixed(fixed_point_sub(aggregated_triangle.v0.x, aggregated_triangle.v1.x)) \
+                    ), \
+                    fixed_wide_mul( \
+                        wide_from_int( \
+                            $signed({1'b0, aggregated_triangle.v1.name}) - \
+                            $signed({1'b0, aggregated_triangle.v0.name}) \
+                        ), \
+                        from_fixed(fixed_point_sub(aggregated_triangle.v0.x, aggregated_triangle.v2.x)) \
+                    ) \
+                ), \
+                inverse_area_reg \
+            )
+
+        next_out_data.R_dx = `ATTR_DX(r);
+        next_out_data.R_dy = `ATTR_DY(r);
+        next_out_data.G_dx = `ATTR_DX(g);
+        next_out_data.G_dy = `ATTR_DY(g);
+        next_out_data.B_dx = `ATTR_DX(b);
+        next_out_data.B_dy = `ATTR_DY(b);
+
+        next_state = Done;
       end
       Done: begin
         in_vert_ready_o = 0;

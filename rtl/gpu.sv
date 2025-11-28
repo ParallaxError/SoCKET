@@ -7,7 +7,7 @@
  * Exposes signals to show if the GPU is busy processing data or has data to output.
  *
  * -----
- * Last Modified: Thursday, 27th November 2025 9:36 pm
+ * Last Modified: Friday, 28th November 2025 2:38 am
  * -----
  */
 
@@ -111,46 +111,76 @@ module gpu (
   );
 
   // Binner -> raster FIFOs
-  triangle_t binner_raster_out_data      [NUM_BINS_X * NUM_BINS_Y];
-  logic      binner_raster_out_data_valid[NUM_BINS_X * NUM_BINS_Y];
+  // triangle_t binner_raster_out_data      [NUM_BINS_X * NUM_BINS_Y];
+  // logic      binner_raster_out_data_valid[NUM_BINS_X * NUM_BINS_Y];
 
-  logic      binner_raster_out_ready     [NUM_BINS_X * NUM_BINS_Y];
+  // logic      binner_raster_out_ready     [NUM_BINS_X * NUM_BINS_Y];
 
-  genvar binner_raster_x, binner_raster_y;
-  generate
-    for (
-        binner_raster_x = 0; binner_raster_x < NUM_BINS_X; binner_raster_x++
-    ) begin : gen_binner_raster_fifos_x
-      for (
-          binner_raster_y = 0; binner_raster_y < NUM_BINS_Y; binner_raster_y++
-      ) begin : gen_binner_raster_fifos_y
-        // FIFO between binner and raster unit
-        logic binner_raster_full;
+  // genvar binner_raster_x, binner_raster_y;
+  // generate
+  //   for (
+  //       binner_raster_x = 0; binner_raster_x < NUM_BINS_X; binner_raster_x++
+  //   ) begin : gen_binner_raster_fifos_x
+  //     for (
+  //         binner_raster_y = 0; binner_raster_y < NUM_BINS_Y; binner_raster_y++
+  //     ) begin : gen_binner_raster_fifos_y
+  //       // FIFO between binner and raster unit
+  //       logic binner_raster_full;
 
-        sync_fifo #(
-            .T(triangle_t),
-            .DEPTH(8)  // TODO magic
-        ) binner_to_raster_fifo (
-            .clk_i          (clk_i),
-            .rst_i          (rst_i),
+  //       sync_fifo #(
+  //           .T(triangle_t),
+  //           .DEPTH(8)  // TODO magic
+  //       ) binner_to_raster_fifo (
+  //           .clk_i          (clk_i),
+  //           .rst_i          (rst_i),
 
-            .rd_en_i        (binner_raster_out_ready[binner_raster_x*NUM_BINS_Y+binner_raster_y]),
-            .empty_o        (),
-            .rd_data_o      (binner_raster_out_data[binner_raster_x*NUM_BINS_Y+binner_raster_y]),
-            .rd_data_valid_o(
-                binner_raster_out_data_valid[binner_raster_x * NUM_BINS_Y + binner_raster_y]
-            ),
+  //           .rd_en_i        (binner_raster_out_ready[binner_raster_x*NUM_BINS_Y+binner_raster_y]),
+  //           .empty_o        (),
+  //           .rd_data_o      (binner_raster_out_data[binner_raster_x*NUM_BINS_Y+binner_raster_y]),
+  //           .rd_data_valid_o(
+  //               binner_raster_out_data_valid[binner_raster_x * NUM_BINS_Y + binner_raster_y]
+  //           ),
 
-            .wr_en_i        (binner_out_valid[binner_raster_x][binner_raster_y]),
-            .wr_data_i      (binner_out_data),
-            .full_o         (binner_raster_full)
-        );
+  //           .wr_en_i        (binner_out_valid[binner_raster_x][binner_raster_y]),
+  //           .wr_data_i      (binner_out_data),
+  //           .full_o         (binner_raster_full)
+  //       );
 
-        // Connect binner outputs to FIFO inputs
-        assign binner_out_ready[binner_raster_x][binner_raster_y] = !binner_raster_full;
-      end
-    end
-  endgenerate
+  //       // Connect binner outputs to FIFO inputs
+  //       assign binner_out_ready[binner_raster_x][binner_raster_y] = !binner_raster_full;
+  //     end
+  //   end
+  // endgenerate
+
+  // Initial attribute calculator to be shared among raster units
+  // TODO: If DSPs permit, could have multiple of these
+  logic                    initial_attributes_in_valid[NUM_BINS_X][NUM_BINS_Y];
+  logic                    initial_attributes_in_ready[NUM_BINS_X][NUM_BINS_Y];
+  integer                  bin_x_i[NUM_BINS_X][NUM_BINS_Y];
+  integer                  bin_y_i[NUM_BINS_X][NUM_BINS_Y];
+  triangle_pkg::triangle_t triangles_i[NUM_BINS_X][NUM_BINS_Y];
+
+  triangle_attribute_pkg::triangle_attributes_t triangle_attrs;
+  logic                                         initial_attributes_out_valid[NUM_BINS_X][NUM_BINS_Y];
+  logic                                         initial_attributes_out_ready[NUM_BINS_X][NUM_BINS_Y];
+
+  initial_attributes #(
+      .NUM_BINS_X(NUM_BINS_X),
+      .NUM_BINS_Y(NUM_BINS_Y)
+  ) initial_attributes_inst (
+      .clk_i           (clk_i),
+      .rst_i           (rst_i),
+
+      .in_valid_i      (initial_attributes_in_valid),
+      .in_ready_o      (initial_attributes_in_ready),
+      .bin_x_i         (bin_x_i),
+      .bin_y_i         (bin_y_i),
+      .triangles_i     (triangles_i),
+
+      .out_ready_i     (initial_attributes_out_ready),
+      .triangle_attrs_o(triangle_attrs),
+      .out_valid_o     (initial_attributes_out_valid)
+  );
 
   // Raster units
   logic      raster_frag_out_ready[NUM_BINS_X * NUM_BINS_Y];
@@ -170,9 +200,18 @@ module gpu (
             .rst_i      (rst_i),
 
             // Input iface (from binner FIFOs)
-            .in_ready_o (binner_raster_out_ready[bx*NUM_BINS_Y+by]),
-            .in_data_i  (binner_raster_out_data[bx*NUM_BINS_Y+by]),
-            .in_valid_i (binner_raster_out_data_valid[bx*NUM_BINS_Y+by]),
+            .in_ready_o (binner_out_ready[bx][by]),
+            .in_data_i  (binner_out_data),
+            .in_valid_i (binner_out_valid[bx][by]),
+
+            // Initial attributes iface
+            .in_attrs_ready_o      (initial_attributes_out_ready[bx][by]),
+            .attrs_triangle_valid_o(initial_attributes_in_valid[bx][by]),
+            .attrs_triangle_o      (triangles_i[bx][by]),
+            .attrs_bin_x_o         (bin_x_i[bx][by]),
+            .attrs_bin_y_o         (bin_y_i[bx][by]),
+            .in_attrs_valid_i      (initial_attributes_out_valid[bx][by]),
+            .in_attrs_i            (triangle_attrs),
 
             // Output iface (to aggregator)
             .out_ready_i(raster_frag_out_ready[bx*NUM_BINS_Y+by]),
