@@ -8,7 +8,7 @@
  * Currently uses a 128 lookup table for initial approximation, followed by 2 Newton-Raphson iterations. 
  * 
  * -----
- * Last Modified: Tuesday, 26th November 2025 11:55 am
+ * Last Modified: Thursday, 27th November 2025 10:21 pm
  * -----
  */
 

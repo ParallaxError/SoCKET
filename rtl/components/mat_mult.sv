@@ -5,7 +5,7 @@
  * Currently pipelined in 4 cycles, one for each row of the matrix.
  *
  * -----
- * Last Modified: Saturday, 22nd November 2025 10:55 pm
+ * Last Modified: Thursday, 27th November 2025 10:22 pm
  * -----
  */
 

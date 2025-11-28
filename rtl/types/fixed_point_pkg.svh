@@ -7,7 +7,7 @@
  * https://www.chipverify.com/systemverilog/systemverilog-package
  *
  * -----
- * Last Modified: Tuesday, 25th November 2025 11:53 am
+ * Last Modified: Thursday, 27th November 2025 10:21 pm
  * -----
  */
 
@@ -74,18 +74,6 @@ package fixed_point_pkg;
     // Multiply the raw values, then shift right by the number of fractional bits
     product = a.value * b.value;
     result.value = product[FIXED_WIDTH+FIXED_FRAC-1-:FIXED_WIDTH];
-    return result;
-  endfunction
-
-  // Divide two fixed point numbers
-  // TODO: Can probably make the sign extensions look better
-  function automatic fixed_t fixed_point_div(fixed_t a, fixed_t b);
-    fixed_t result;
-    logic signed [FIXED_WIDTH * 2 - 1:0] dividend;
-    // Shift left by the number of fractional bits before dividing
-    // 64 bit extend, too
-    dividend = ({{FIXED_WIDTH{a.value[FIXED_WIDTH-1]}}, a.value} <<< FIXED_FRAC);
-    result.value = $signed(dividend / {{FIXED_WIDTH{b.value[FIXED_WIDTH-1]}}, b.value});
     return result;
   endfunction
 

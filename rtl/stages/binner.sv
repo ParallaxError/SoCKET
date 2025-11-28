@@ -5,7 +5,7 @@
  * Aggregates input vertices into triangles and assigns them to screen-space bins for rasterization.
  *
  * -----
- * Last Modified: Wednesday, 26th November 2025 9:46 pm
+ * Last Modified: Thursday, 27th November 2025 9:41 pm
  * -----
  */
 
@@ -111,8 +111,8 @@ module binner #(
         end
       end
 
-      // Reset vert count before next triangle
-      if (state == Done && next_state == Aggregating) vertex_count <= 0;
+      // Reset vert count if going into Aggregating
+      if (state != Aggregating && next_state == Aggregating) vertex_count <= 0;
       
       // Latch computed triangle when we transition to Done from CalculatingBounds
       out_data_reg <= next_out_data;
@@ -215,7 +215,10 @@ module binner #(
         if (div_out_valid) begin
           // Latch inverse area
           next_out_data.inverse_area = div_output;
-          next_state = Done;
+          if ($signed(div_output.value) < 0)
+            next_state = Aggregating; // Backfacing triangle, discard
+          else
+            next_state = Done;
         end
       end
       Done: begin

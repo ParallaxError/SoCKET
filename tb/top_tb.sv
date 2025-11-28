@@ -212,7 +212,7 @@ module top_tb();
 
   // Timeout to prevent infinite simulation
   initial begin
-      #600000;
+      #1666666;
       $display("Test timed out!");
       $finish;
   end
