@@ -6,7 +6,7 @@
  *
  * Currently, the only command supported is to pass in a singular vertex through the registers. 
  * -----
- * Last Modified: Saturday, 22nd November 2025 11:03 pm
+ * Last Modified: Sunday, 30th November 2025 6:41 pm
  * -----
  */
 
@@ -122,6 +122,8 @@ module gpu_top ( input  logic        clk,
       end
     end
   end
+  
+  parameter int B = PIXEL_WIDTH / 8;
 
   // Output data handling
   always_ff @ (posedge clk or posedge reset)
@@ -141,11 +143,13 @@ module gpu_top ( input  logic        clk,
         begin
           if (out_data_o.valid_pixels[i])
           begin
-            de_w_data[((i + 1)*8) - 1 -: 8] <= out_data_o.pixels[i];
+            de_w_data[((i + 1)*PIXEL_WIDTH) - 1 -: PIXEL_WIDTH] <= out_data_o.pixels[i];
           end
         end
 
-        de_nbyte <= ~out_data_o.valid_pixels;
+        for (int i = 0; i < PIXELS_PER_WORD; i++) begin
+          de_nbyte[(i+1)*B-1 -: B] = {B{~out_data_o.valid_pixels[i]}};
+        end
 
         out_ready_i <= 1'b0;
         de_req    <= 1'b1;
