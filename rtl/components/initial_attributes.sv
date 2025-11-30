@@ -9,7 +9,7 @@
  * DSPs with another module that calculates initial triangle attributes.
  * 
  * -----
- * Last Modified: Friday, 28th November 2025 2:38 am
+ * Last Modified: Saturday, 29th November 2025 8:21 pm
  * -----
  */
 
@@ -38,12 +38,19 @@ module initial_attributes # (
 int   idx;  // round-robin start pointer
 int   next_idx;
 
+triangle_attribute_pkg::triangle_attributes_t triangle_attrs_o_comb;
+logic                                         out_valid_o_comb[NUM_BINS_X][NUM_BINS_Y];
+
 // Sequential logic: Updating the next selected bin
 always_ff @(posedge clk_i or posedge rst_i) begin
   if (rst_i) begin
     idx <= 0;
   end else begin
     idx <= next_idx;
+    triangle_attrs_o <= triangle_attrs_o_comb;
+    for (int i = 0; i < NUM_BINS_X*NUM_BINS_Y; i++) begin
+      out_valid_o[i/NUM_BINS_Y][i%NUM_BINS_Y] <= out_valid_o_comb[i/NUM_BINS_Y][i%NUM_BINS_Y];
+    end
   end
 end
 
@@ -54,18 +61,18 @@ end
 always_comb begin
   logic found;
   int   found_idx;
+  found = 0;
+  found_idx = 0;
   
   // Default outputs
   for (int i = 0; i < NUM_BINS_X*NUM_BINS_Y; i++) begin
     in_ready_o[i/NUM_BINS_Y][i%NUM_BINS_Y] = 1'b1; // Always ready to accept input
-    out_valid_o[i/NUM_BINS_Y][i%NUM_BINS_Y] = 1'b0;
+    out_valid_o_comb[i/NUM_BINS_Y][i%NUM_BINS_Y] = 1'b0;
   end
 
   next_idx = idx;
-  triangle_attrs_o = '{default: '0};
-
+  triangle_attrs_o_comb = '{default: '0};
   // Scan for next valid input
-  found = 0;
   for (int i = 0; i < NUM_BINS_X*NUM_BINS_Y; i++) begin
     int j;
     j = (idx + i) % (NUM_BINS_X*NUM_BINS_Y);
@@ -81,14 +88,14 @@ always_comb begin
   // Now, we drive the output for the selected input if found
   if (found && out_ready_i[found_idx/NUM_BINS_Y][found_idx%NUM_BINS_Y]) begin
     // Calculate initial triangle attributes
-    triangle_attrs_o = triangle_attribute_pkg::calculate_initial_attributes(
+    triangle_attrs_o_comb = triangle_attribute_pkg::calculate_initial_attributes(
       triangles_i[found_idx/NUM_BINS_Y][found_idx%NUM_BINS_Y],
       bin_x_i[found_idx/NUM_BINS_Y][found_idx%NUM_BINS_Y],
       bin_y_i[found_idx/NUM_BINS_Y][found_idx%NUM_BINS_Y]
     );
 
     // First, assert output valid
-    out_valid_o[found_idx/NUM_BINS_Y][found_idx%NUM_BINS_Y] = 1'b1;
+    out_valid_o_comb[found_idx/NUM_BINS_Y][found_idx%NUM_BINS_Y] = 1'b1;
 
     // Update next index to start from the next bin on the next cycle
     next_idx = (found_idx + 1) % (NUM_BINS_X*NUM_BINS_Y);

@@ -5,7 +5,7 @@
  * Aggregates input vertices into triangles and assigns them to screen-space bins for rasterization.
  *
  * -----
- * Last Modified: Friday, 28th November 2025 1:08 am
+ * Last Modified: Saturday, 29th November 2025 11:35 pm
  * -----
  */
 
@@ -47,25 +47,25 @@ module binner #(
   typedef enum logic [2:0] {
     Aggregating,
     CalculatingBounds,
+    SetupDivider,
     WaitingForDivider,
     CalculatingDeltas,
     Done
   } state_e;
 
   state_e    state, next_state;
-
   int        vertex_count;
-  triangle_t aggregated_triangle;
 
-  // Registered output that persists between CalculatingBounds and Done
-  triangle_t out_data_reg;
-
-  // Combinational next value for out_data_reg (computed during CalculatingBounds)
-  triangle_t next_out_data;
+  // Combinatorially driven triangle output
+  triangle_t out_data_comb;
+  // Next-cycle registered output valid signals (break comb loops)
+  logic next_out_valid[NUM_BINS_X][NUM_BINS_Y];
 
   // 1/area calculation
   // Reciprocal signals
   fixed_wide_t area_reg;
+  fixed_wide_t area_reg_pipe; // Violates timing otherwise, extra cycle for setup
+  logic[0:0]   setup_counter;
   fixed_wide_t div_output;
   fixed_wide_t inverse_area_reg;
   logic   div_in_valid;
@@ -79,9 +79,9 @@ module binner #(
 
       .in_ready_o         (div_ready),
       .in_valid_i         (div_in_valid),
-      .in_denominator_i   (area_reg),
+      .in_denominator_i   (area_reg_pipe),
 
-      .out_ready_i        (state == WaitingForDivider ? 1'b1 : 1'b0),
+      .out_ready_i        ((state == SetupDivider || state == WaitingForDivider) ? 1'b1 : 1'b0),
       .out_data_o         (div_output),
       .out_valid_o        (div_out_valid)
   );
@@ -91,33 +91,76 @@ module binner #(
     if (rst_i) begin
       state <= Aggregating;
       vertex_count <= 0;
-      out_data_reg <= '{default: '0};
+      out_data_o <= '{default: '0};
+      area_reg <= '0;
+      setup_counter <= '0;
+      inverse_area_reg <= '0;
+
+      // Clear registered output valids
+      for (int bx = 0; bx < NUM_BINS_X; bx++)
+        for (int by = 0; by < NUM_BINS_Y; by++)
+          out_valid_o[bx][by] <= 1'b0;
     end else begin
       if (state == Aggregating && in_vert_valid_i) begin
         case (vertex_count)
-          0: aggregated_triangle.v0 <= in_vert_data_i;
-          1: aggregated_triangle.v1 <= in_vert_data_i;
-          2: aggregated_triangle.v2 <= in_vert_data_i;
+          0: out_data_o.v0 <= in_vert_data_i;
+          1: out_data_o.v1 <= in_vert_data_i;
+          2: out_data_o.v2 <= in_vert_data_i;
         endcase
 
         vertex_count <= vertex_count + 1;
 
         // Latch and calculate edge area when moving to CalculatingBounds
         if (next_state == CalculatingBounds) begin
-          // Can't use aggregated_triangle here since it'll be latched *this* cycle
+          // Can't use out_data_o here since it'll be latched *this* cycle
           area_reg <= edge_function(
-            aggregated_triangle.v0.x, aggregated_triangle.v0.y,
-            aggregated_triangle.v1.x, aggregated_triangle.v1.y,
+            out_data_o.v0.x, out_data_o.v0.y,
+            out_data_o.v1.x, out_data_o.v1.y,
             in_vert_data_i.x, in_vert_data_i.y
           );
         end
+        // area_reg_pipe is captured when moving from CalculatingBounds -> SetupDivider
       end
+      else if (state == CalculatingBounds && next_state == SetupDivider) begin
+        // Latch bounds from comb reg
+        out_data_o.min_x <= out_data_comb.min_x;
+        out_data_o.max_x <= out_data_comb.max_x;
+        out_data_o.min_y <= out_data_comb.min_y;
+        out_data_o.max_y <= out_data_comb.max_y; 
+        // Capture the pipelined area for the reciprocal unit
+        area_reg_pipe <= area_reg;
+      end
+      else if (state == WaitingForDivider && next_state == CalculatingDeltas) begin
+        // Latch inverse area
+        inverse_area_reg <= div_output;
+      end
+      else if (state == CalculatingDeltas && next_state == Done) begin
+        // Latch deltas
+        out_data_o.R_dx <= out_data_comb.R_dx;
+        out_data_o.R_dy <= out_data_comb.R_dy;
+        out_data_o.G_dx <= out_data_comb.G_dx;
+        out_data_o.G_dy <= out_data_comb.G_dy;
+        out_data_o.B_dx <= out_data_comb.B_dx;
+        out_data_o.B_dy <= out_data_comb.B_dy;
+      end
+
+      if (state == SetupDivider)
+      begin
+        if (setup_counter == 0)
+          setup_counter <= 1;
+        else
+          setup_counter <= 0; // Shouldn't hit here but just in case
+      end
+      else
+        setup_counter <= 0;
 
       // Reset vert count if going into Aggregating
       if (state != Aggregating && next_state == Aggregating) vertex_count <= 0;
-      
-      // Latch computed triangle when we transition to Done from CalculatingBounds
-      out_data_reg <= next_out_data;
+
+      // Register the next-cycle out_valid signals
+      for (int bx = 0; bx < NUM_BINS_X; bx++)
+        for (int by = 0; by < NUM_BINS_Y; by++)
+          out_valid_o[bx][by] <= next_out_valid[bx][by];
 
       state <= next_state;
     end
@@ -132,11 +175,11 @@ module binner #(
     // Default
     next_state = state;
     in_vert_ready_o = 0;
-    // default next_out_data to the current registered output so we only change it
-    next_out_data = out_data_reg;
+    out_data_comb = out_data_o;
+
     for (int bx = 0; bx < NUM_BINS_X; bx++)
       for (int by = 0; by < NUM_BINS_Y; by++)
-        out_valid_o[bx][by] = 0;
+        next_out_valid[bx][by] = 1'b0;
 
     div_in_valid = 1'b0;
 
@@ -154,32 +197,29 @@ module binner #(
         int min_x, max_x, min_y, max_y;
 
         // Calculate bounding box of triangle in fixed-point temporaries
-        min_x_fp = aggregated_triangle.v0.x;
-        max_x_fp = aggregated_triangle.v0.x;
-        min_y_fp = aggregated_triangle.v0.y;
-        max_y_fp = aggregated_triangle.v0.y;
+        min_x_fp = out_data_o.v0.x;
+        max_x_fp = out_data_o.v0.x;
+        min_y_fp = out_data_o.v0.y;
+        max_y_fp = out_data_o.v0.y;
 
         in_vert_ready_o = 0;
 
-        // Assign triangle data into the combinational next value
-        next_out_data = aggregated_triangle;
-
-        if ($signed(aggregated_triangle.v1.x.value) < $signed(min_x_fp.value))
-          min_x_fp = aggregated_triangle.v1.x;
-        if ($signed(aggregated_triangle.v1.x.value) > $signed(max_x_fp.value))
-          max_x_fp = aggregated_triangle.v1.x;
-        if ($signed(aggregated_triangle.v1.y.value) < $signed(min_y_fp.value))
-          min_y_fp = aggregated_triangle.v1.y;
-        if ($signed(aggregated_triangle.v1.y.value) > $signed(max_y_fp.value))
-          max_y_fp = aggregated_triangle.v1.y;
-        if ($signed(aggregated_triangle.v2.x.value) < $signed(min_x_fp.value))
-          min_x_fp = aggregated_triangle.v2.x;
-        if ($signed(aggregated_triangle.v2.x.value) > $signed(max_x_fp.value))
-          max_x_fp = aggregated_triangle.v2.x;
-        if ($signed(aggregated_triangle.v2.y.value) < $signed(min_y_fp.value))
-          min_y_fp = aggregated_triangle.v2.y;
-        if ($signed(aggregated_triangle.v2.y.value) > $signed(max_y_fp.value))
-          max_y_fp = aggregated_triangle.v2.y;
+        if ($signed(out_data_o.v1.x.value) < $signed(min_x_fp.value))
+          min_x_fp = out_data_o.v1.x;
+        if ($signed(out_data_o.v1.x.value) > $signed(max_x_fp.value))
+          max_x_fp = out_data_o.v1.x;
+        if ($signed(out_data_o.v1.y.value) < $signed(min_y_fp.value))
+          min_y_fp = out_data_o.v1.y;
+        if ($signed(out_data_o.v1.y.value) > $signed(max_y_fp.value))
+          max_y_fp = out_data_o.v1.y;
+        if ($signed(out_data_o.v2.x.value) < $signed(min_x_fp.value))
+          min_x_fp = out_data_o.v2.x;
+        if ($signed(out_data_o.v2.x.value) > $signed(max_x_fp.value))
+          max_x_fp = out_data_o.v2.x;
+        if ($signed(out_data_o.v2.y.value) < $signed(min_y_fp.value))
+          min_y_fp = out_data_o.v2.y;
+        if ($signed(out_data_o.v2.y.value) > $signed(max_y_fp.value))
+          max_y_fp = out_data_o.v2.y;
 
         // Convert to int (user-provided helper expected) AFTER the display
         min_x = fixed_point_to_int(min_x_fp);
@@ -192,7 +232,7 @@ module binner #(
         begin
           next_state = Aggregating;
         end else begin
-          next_state = WaitingForDivider; // Otherwise we wait for the divider
+          next_state = SetupDivider; // Otherwise we pass to divider for 1/a
         end
 
         // Otherwise, we clip to screen bounds
@@ -202,21 +242,22 @@ module binner #(
         if (max_y >= SCREEN_HEIGHT) max_y = SCREEN_HEIGHT - 1;
 
         // Truncate by populating structure members
-        next_out_data.min_x = min_x;
-        next_out_data.max_x = max_x;
-        next_out_data.min_y = min_y;
-        next_out_data.max_y = max_y;
-
-        // While we do this, populate reciprocal unit to calculate 1/a
-        div_in_valid = 1'b1;
+        out_data_comb.min_x = min_x;
+        out_data_comb.max_x = max_x;
+        out_data_comb.min_y = min_y;
+        out_data_comb.max_y = max_y;
+      end
+      SetupDivider: begin
+        // Wait state for timing: 7s50 needed two extra cycles when implemented
+        if (setup_counter == 1)
+          next_state = WaitingForDivider;
       end
       WaitingForDivider: begin
         in_vert_ready_o = 0;
+        div_in_valid = 1'b1;
 
         // When reciprocal output valid, latch it and move to Done
         if (div_out_valid) begin
-          // Latch inverse area
-          inverse_area_reg = div_output;
           if ($signed(div_output.value) < 0)
             next_state = Aggregating; // Backfacing triangle, discard
           else
@@ -230,17 +271,17 @@ module binner #(
                 fixed_wide_sub( \
                     fixed_wide_mul( \
                         wide_from_int( \
-                            $signed({1'b0, aggregated_triangle.v1.name}) - \
-                            $signed({1'b0, aggregated_triangle.v0.name}) \
+                            $signed({1'b0, out_data_o.v1.name}) - \
+                            $signed({1'b0, out_data_o.v0.name}) \
                         ), \
-                        from_fixed(fixed_point_sub(aggregated_triangle.v0.y, aggregated_triangle.v2.y)) \
+                        from_fixed(fixed_point_sub(out_data_o.v0.y, out_data_o.v2.y)) \
                     ), \
                     fixed_wide_mul( \
                         wide_from_int( \
-                            $signed({1'b0, aggregated_triangle.v2.name}) - \
-                            $signed({1'b0, aggregated_triangle.v0.name}) \
+                            $signed({1'b0, out_data_o.v2.name}) - \
+                            $signed({1'b0, out_data_o.v0.name}) \
                         ), \
-                        from_fixed(fixed_point_sub(aggregated_triangle.v0.y, aggregated_triangle.v1.y)) \
+                        from_fixed(fixed_point_sub(out_data_o.v0.y, out_data_o.v1.y)) \
                     ) \
                 ), \
                 inverse_area_reg \
@@ -251,28 +292,28 @@ module binner #(
                 fixed_wide_sub( \
                     fixed_wide_mul( \
                         wide_from_int( \
-                            $signed({1'b0, aggregated_triangle.v2.name}) - \
-                            $signed({1'b0, aggregated_triangle.v0.name}) \
+                            $signed({1'b0, out_data_o.v2.name}) - \
+                            $signed({1'b0, out_data_o.v0.name}) \
                         ), \
-                        from_fixed(fixed_point_sub(aggregated_triangle.v0.x, aggregated_triangle.v1.x)) \
+                        from_fixed(fixed_point_sub(out_data_o.v0.x, out_data_o.v1.x)) \
                     ), \
                     fixed_wide_mul( \
                         wide_from_int( \
-                            $signed({1'b0, aggregated_triangle.v1.name}) - \
-                            $signed({1'b0, aggregated_triangle.v0.name}) \
+                            $signed({1'b0, out_data_o.v1.name}) - \
+                            $signed({1'b0, out_data_o.v0.name}) \
                         ), \
-                        from_fixed(fixed_point_sub(aggregated_triangle.v0.x, aggregated_triangle.v2.x)) \
+                        from_fixed(fixed_point_sub(out_data_o.v0.x, out_data_o.v2.x)) \
                     ) \
                 ), \
                 inverse_area_reg \
             )
 
-        next_out_data.R_dx = `ATTR_DX(r);
-        next_out_data.R_dy = `ATTR_DY(r);
-        next_out_data.G_dx = `ATTR_DX(g);
-        next_out_data.G_dy = `ATTR_DY(g);
-        next_out_data.B_dx = `ATTR_DX(b);
-        next_out_data.B_dy = `ATTR_DY(b);
+        out_data_comb.R_dx = `ATTR_DX(r);
+        out_data_comb.R_dy = `ATTR_DY(r);
+        out_data_comb.G_dx = `ATTR_DX(g);
+        out_data_comb.G_dy = `ATTR_DY(g);
+        out_data_comb.B_dx = `ATTR_DX(b);
+        out_data_comb.B_dy = `ATTR_DY(b);
 
         next_state = Done;
       end
@@ -292,8 +333,8 @@ module binner #(
             bin_min_y = by * BIN_HEIGHT;
             bin_max_y = bin_min_y + BIN_HEIGHT - 1;
 
-            overlaps = !(out_data_reg.max_x < bin_min_x || out_data_reg.min_x > bin_max_x ||
-              out_data_reg.max_y < bin_min_y || out_data_reg.min_y > bin_max_y);
+            overlaps = !(out_data_o.max_x < bin_min_x || out_data_o.min_x > bin_max_x ||
+              out_data_o.max_y < bin_min_y || out_data_o.min_y > bin_max_y);
 
             if (overlaps && !out_ready_i[bx][by]) all_bins_ready = 0;
           end
@@ -312,10 +353,10 @@ module binner #(
               bin_min_y = by * BIN_HEIGHT;
               bin_max_y = bin_min_y + BIN_HEIGHT - 1;
 
-              overlaps = !(out_data_reg.max_x < bin_min_x || out_data_reg.min_x > bin_max_x ||
-                  out_data_reg.max_y < bin_min_y || out_data_reg.min_y > bin_max_y);
+              overlaps = !(out_data_o.max_x < bin_min_x || out_data_o.min_x > bin_max_x ||
+                  out_data_o.max_y < bin_min_y || out_data_o.min_y > bin_max_y);
 
-              if (overlaps) out_valid_o[bx][by] = 1;
+              if (overlaps) next_out_valid[bx][by] = 1;
             end
           end
           // Can move to next triangle after outputting, output will be accepted
@@ -330,8 +371,5 @@ module binner #(
       end
     endcase
   end
-
-  // Drive module output from registered triangle so it persists across cycles
-  assign out_data_o = out_data_reg;
 
 endmodule

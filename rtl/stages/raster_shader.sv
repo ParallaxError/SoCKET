@@ -6,7 +6,7 @@
  * Fragments are output in pixel buffer format to be fragment shaded, then written to the output FIFO aggregator.
  *
  * -----
- * Last Modified: Friday, 28th November 2025 3:03 am
+ * Last Modified: Sunday, 30th November 2025 1:08 am
  * -----
  */
 
@@ -66,7 +66,7 @@ module raster_shader #(
 
     int pixel_index;
     // Initialize to zero
-    // frag = '{default: '{default: '0}};
+    frag = '{default: '{default: '0}};
     
     // Divide by pixels per word to get x,y in the pixel buffer
     pixel_index = pixel_x % PIXELS_PER_WORD;
@@ -204,7 +204,7 @@ module raster_shader #(
 
           cur_triangle <= in_data_i;
         end
-        else if (state == InitialisingAttributes && in_attrs_valid_i)
+        else if (state == InitialisingAttributes && next_state == Processing)
         begin
           // Latch attributes
           cur_e0 <= in_attrs_i.e0;
@@ -280,10 +280,12 @@ module raster_shader #(
   begin
       // Defaults
       in_ready_o = 0;
-      // out_data_o = '{default: '{default: '0}};
+      out_data_o = '{default: '{default: '0}};
       out_valid_o = 0;
       next_state = state;
       attrs_triangle_o = cur_triangle;
+      in_attrs_ready_o = 0;
+      attrs_triangle_valid_o = 0;
 
       case (state)
         Idle:

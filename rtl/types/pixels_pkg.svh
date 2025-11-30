@@ -6,7 +6,7 @@
  * we define a packed structure to hold multiple pixels.
  *
  * -----
- * Last Modified: Friday, 28th November 2025 1:25 am
+ * Last Modified: Saturday, 29th November 2025 11:36 pm
  * -----
  */
 
@@ -19,9 +19,9 @@ package pixels_pkg;
 
   // Single pixel structure
   typedef struct packed {
-    logic [2:0] r;
-    logic [2:0] g;
-    logic [1:0] b;
+    logic [4:0] r;
+    logic [5:0] g;
+    logic [4:0] b;
   } pixel_t;
 
   // 32 bit buffer holding as many pixels as possible, with a signal
