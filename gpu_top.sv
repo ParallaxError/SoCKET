@@ -6,7 +6,7 @@
  *
  * Currently, the only command supported is to pass in a singular vertex through the registers. 
  * -----
- * Last Modified: Sunday, 30th November 2025 6:41 pm
+ * Last Modified: Tuesday, 2nd December 2025 9:48 pm
  * -----
  */
 
@@ -104,16 +104,33 @@ module gpu_top ( input  logic        clk,
     begin
       if (req && !ack && in_ready_o)
       begin
-        // Latch parameters into in data
-        in_data_i.x <= r0;
-        in_data_i.y <= r1;
-        in_data_i.z <= r2;
-        in_data_i.r <= r3[7:0];
-        in_data_i.g <= r4[7:0];
-        in_data_i.b <= r5[7:0];
+        // Command: load a single vertex
+        if (r7 == 32'h00000000)
+        begin
+          // Latch parameters into in data
+          in_data_i.x <= r0;
+          in_data_i.y <= r1;
+          in_data_i.z <= r2;
+          in_data_i.r <= r3[7:0];
+          in_data_i.g <= r4[7:0];
+          in_data_i.b <= r5[7:0];
 
-        in_valid_i  <= 1'b1;
-        ack       <= 1'b1;
+          in_valid_i  <= 1'b1;
+          ack       <= 1'b1;
+        end
+        // Command: Load a row into the matrix
+        else if (r7 == 32'h00000001)
+        begin
+          // r0 = row index
+          // r1, r2, r3, r4 = row data in fixed-point
+          input_matrix.m[r0[1:0]][0] <= r1;
+          input_matrix.m[r0[1:0]][1] <= r2;
+          input_matrix.m[r0[1:0]][2] <= r3;
+          input_matrix.m[r0[1:0]][3] <= r4;
+
+          ack       <= 1'b1;
+          in_valid_i  <= 1'b0;
+        end
       end
       else
       begin

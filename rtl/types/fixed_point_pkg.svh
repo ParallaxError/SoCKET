@@ -7,7 +7,7 @@
  * https://www.chipverify.com/systemverilog/systemverilog-package
  *
  * -----
- * Last Modified: Thursday, 27th November 2025 10:21 pm
+ * Last Modified: Tuesday, 2nd December 2025 10:46 pm
  * -----
  */
 
@@ -16,8 +16,8 @@
 package fixed_point_pkg;
 
   // Configurable parameters
-  parameter int FIXED_WIDTH = 20;
-  parameter int FIXED_FRAC = 9;
+  parameter int FIXED_WIDTH = 32;
+  parameter int FIXED_FRAC = 16;
 
   typedef struct packed {logic signed [FIXED_WIDTH-1:0] value;} fixed_t;
 

@@ -3,7 +3,9 @@
 `include "types/mat4x4_pkg.svh"
 `include "types/pixels_pkg.svh"
 
-import "DPI-C" function void writescreen (input int R, input int G, input int B, input int x, input int y);
+import "DPI-C" function void writescreen (
+    input int R, input int G, input int B, input int x, input int y
+);
 
 module top_tb();
   import vertex_pkg::*;
@@ -13,6 +15,10 @@ module top_tb();
 
   logic        clk;
   logic        rst;
+  
+  // Testbench signals
+  int          vertices_left;
+  int          out_valid_counter; // Count 100 cycles of constant valid low, that means we're done
 
   // Input FIFO
   logic        in_rd_en;
@@ -114,7 +120,8 @@ module top_tb();
       // Very first line is the number of vertices
       $fscanf(fd, "%d\n", num_vertices);
       $display("Number of vertices to load: %0d", num_vertices);
-
+      vertices_left = num_vertices;
+      $display("Vertices left to process: %0d", vertices_left);
 
       // First 4 lines are the first 4 rows of the matrix
       // Read 4 floats 4 times and set it
@@ -163,6 +170,8 @@ module top_tb();
           @(posedge clk); 
           in_wr_en = 0;
 
+          vertices_left--;
+
           // $display("[%0t] Enqueued vertex %0d: x=%f y=%f z=%f r=%0h g=%0h b=%0h",
           //         $time, i,
           //         to_real(test_vertices[i].x), to_real(test_vertices[i].y),
@@ -210,9 +219,26 @@ module top_tb();
       end
   end
 
+  // Check for 100 cycles of no output to finish simulation
+  initial begin
+      out_valid_counter = 0;
+      forever begin
+          @ (posedge clk);
+          if (vertices_left > 0 || !out_empty) begin
+              out_valid_counter = 0;
+          end else begin
+              out_valid_counter++;
+              if (out_valid_counter >= 100000) begin
+                  $display("\nNo more output from GPU after %0d cycles. Test complete.", out_valid_counter);
+                  $finish;
+              end
+          end
+      end
+  end
+
   // Timeout to prevent infinite simulation
   initial begin
-      #7000000;
+      #40000000;
       $display("Test timed out!");
       $finish;
   end

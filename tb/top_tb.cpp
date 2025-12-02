@@ -65,7 +65,7 @@ extern "C" void writescreen(int R, int G, int B, int x, int y)
     // Invert y since (0, 0) in BMP is bottom-left
     int idx = ((BMP_HEIGHT - 1 - y) * PIXELS + x) * 3;
 
-    framebuffer[idx + 0] = std::min(255, std::max(0, B << 3));
-    framebuffer[idx + 1] = std::min(255, std::max(0, G << 2));
-    framebuffer[idx + 2] = std::min(255, std::max(0, R << 3));
+    framebuffer[idx + 0] = std::min(255, std::max(0, B << 3)) & 0xC0;
+    framebuffer[idx + 1] = std::min(255, std::max(0, G << 2)) & 0xE0;
+    framebuffer[idx + 2] = std::min(255, std::max(0, R << 3)) & 0xE0;
 }
