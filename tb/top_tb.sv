@@ -228,7 +228,7 @@ module top_tb();
               out_valid_counter = 0;
           end else begin
               out_valid_counter++;
-              if (out_valid_counter >= 100000) begin
+              if (out_valid_counter >= 10000) begin
                   $display("\nNo more output from GPU after %0d cycles. Test complete.", out_valid_counter);
                   $finish;
               end
