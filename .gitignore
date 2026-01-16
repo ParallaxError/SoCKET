@@ -2,3 +2,7 @@ wave/
 sim_build/
 out.bmp
 .vscode
+model/bin
+model/socket
+model/test.py
+model/output.bmp
