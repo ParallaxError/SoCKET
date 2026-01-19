@@ -5,7 +5,7 @@
  * Aggregates input vertices into triangles and assigns them to screen-space bins for rasterization.
  *
  * -----
- * Last Modified: Saturday, 29th November 2025 11:35 pm
+ * Last Modified: Sunday, 18th January 2026 10:17 pm
  * -----
  */
 
@@ -32,7 +32,8 @@ module binner #(
     // output streaming iface
     input  logic                    out_ready_i[NUM_BINS_X][NUM_BINS_Y],
     output triangle_pkg::triangle_t out_data_o,
-    output logic                    out_valid_o[NUM_BINS_X][NUM_BINS_Y]
+    output logic                    out_valid_o[NUM_BINS_X][NUM_BINS_Y],
+    output logic                    out_busy_o
 );
   // Imports
   import fixed_point_pkg::*;
@@ -53,13 +54,20 @@ module binner #(
     Done
   } state_e;
 
-  state_e    state, next_state;
-  int        vertex_count;
+  typedef enum logic [2:0] {
+    CalculatingRed,
+    CalculatingBlue,
+    CalculatingGreen
+  } current_delta_e;
+
+  state_e         state, next_state;
+  current_delta_e current_delta;
+  logic [1:0]     vertex_count;
 
   // Combinatorially driven triangle output
   triangle_t out_data_comb;
   // Next-cycle registered output valid signals (break comb loops)
-  logic next_out_valid[NUM_BINS_X][NUM_BINS_Y];
+  logic      next_out_valid[NUM_BINS_X][NUM_BINS_Y];
 
   // 1/area calculation
   // Reciprocal signals
@@ -68,9 +76,14 @@ module binner #(
   logic[0:0]   setup_counter;
   fixed_wide_t div_output;
   fixed_wide_t inverse_area_reg;
-  logic   div_in_valid;
-  logic   div_out_valid;
-  logic   div_ready;
+  logic        div_in_valid;
+  logic        div_out_valid;
+  logic        div_ready;
+
+  // Delta calculation
+  // Can calculate one delta attribute per cycle
+  logic [7:0] current_attribute_v0, current_attribute_v1, current_attribute_v2;
+  fixed_wide_t current_dx, current_dy;
 
   // Area inverser
   inverse_area inverse_area_inst (
@@ -87,14 +100,19 @@ module binner #(
   );
 
   // Next state sequential logic
-  always_ff @(posedge clk_i or posedge rst_i) begin
+  always_ff @(posedge clk_i) begin
     if (rst_i) begin
       state <= Aggregating;
+      current_delta <= CalculatingRed;
       vertex_count <= 0;
       out_data_o <= '{default: '0};
       area_reg <= '0;
       setup_counter <= '0;
       inverse_area_reg <= '0;
+
+      current_attribute_v0 <= '0;
+      current_attribute_v1 <= '0;
+      current_attribute_v2 <= '0;
 
       // Clear registered output valids
       for (int bx = 0; bx < NUM_BINS_X; bx++)
@@ -133,15 +151,40 @@ module binner #(
       else if (state == WaitingForDivider && next_state == CalculatingDeltas) begin
         // Latch inverse area
         inverse_area_reg <= div_output;
+        // Start by calculating red deltas
+        current_delta <= CalculatingRed;
+        current_attribute_v0 <= out_data_o.v0.r;
+        current_attribute_v1 <= out_data_o.v1.r;
+        current_attribute_v2 <= out_data_o.v2.r;
       end
-      else if (state == CalculatingDeltas && next_state == Done) begin
-        // Latch deltas
-        out_data_o.R_dx <= out_data_comb.R_dx;
-        out_data_o.R_dy <= out_data_comb.R_dy;
-        out_data_o.G_dx <= out_data_comb.G_dx;
-        out_data_o.G_dy <= out_data_comb.G_dy;
-        out_data_o.B_dx <= out_data_comb.B_dx;
-        out_data_o.B_dy <= out_data_comb.B_dy;
+      else if (state == CalculatingDeltas) begin
+        // Latch deltas depending on state and move to next attribute
+        case (current_delta)
+          CalculatingRed: begin
+            out_data_o.R_dx <= current_dx;
+            out_data_o.R_dy <= current_dy;
+            // Move to blue
+            current_delta <= CalculatingBlue;
+            current_attribute_v0 <= out_data_o.v0.b;
+            current_attribute_v1 <= out_data_o.v1.b;
+            current_attribute_v2 <= out_data_o.v2.b;
+          end
+          CalculatingBlue: begin
+            out_data_o.B_dx <= current_dx;
+            out_data_o.B_dy <= current_dy;
+            // Move to green
+            current_delta <= CalculatingGreen;
+            current_attribute_v0 <= out_data_o.v0.g;
+            current_attribute_v1 <= out_data_o.v1.g;
+            current_attribute_v2 <= out_data_o.v2.g;
+          end
+          CalculatingGreen: begin
+            out_data_o.G_dx <= current_dx;
+            out_data_o.G_dy <= current_dy;
+            // All done with deltas
+          end
+          default: ;
+        endcase
       end
 
       if (state == SetupDivider)
@@ -265,57 +308,53 @@ module binner #(
         end
       end
       CalculatingDeltas: begin
-        // Macros for delta calculations
-        `define ATTR_DX(name) \
-            fixed_wide_mul( \
-                fixed_wide_sub( \
-                    fixed_wide_mul( \
-                        wide_from_int( \
-                            $signed({1'b0, out_data_o.v1.name}) - \
-                            $signed({1'b0, out_data_o.v0.name}) \
-                        ), \
-                        from_fixed(fixed_point_sub(out_data_o.v0.y, out_data_o.v2.y)) \
-                    ), \
-                    fixed_wide_mul( \
-                        wide_from_int( \
-                            $signed({1'b0, out_data_o.v2.name}) - \
-                            $signed({1'b0, out_data_o.v0.name}) \
-                        ), \
-                        from_fixed(fixed_point_sub(out_data_o.v0.y, out_data_o.v1.y)) \
-                    ) \
-                ), \
-                inverse_area_reg \
-            )
+        // Calculate deltas for current attribute
+        current_dx = fixed_wide_mul(
+                fixed_wide_sub(
+                    fixed_wide_mul(
+                        wide_from_int(
+                            $signed({1'b0, current_attribute_v1}) -
+                            $signed({1'b0, current_attribute_v0})
+                        ),
+                        from_fixed(fixed_point_sub(out_data_o.v0.y, out_data_o.v2.y))
+                    ),
+                    fixed_wide_mul(
+                        wide_from_int(
+                            $signed({1'b0, current_attribute_v2}) -
+                            $signed({1'b0, current_attribute_v0})
+                        ),
+                        from_fixed(fixed_point_sub(out_data_o.v0.y, out_data_o.v1.y))
+                    )
+                ),
+                inverse_area_reg
+            );
 
-        `define ATTR_DY(name) \
-            fixed_wide_mul( \
-                fixed_wide_sub( \
-                    fixed_wide_mul( \
-                        wide_from_int( \
-                            $signed({1'b0, out_data_o.v2.name}) - \
-                            $signed({1'b0, out_data_o.v0.name}) \
-                        ), \
-                        from_fixed(fixed_point_sub(out_data_o.v0.x, out_data_o.v1.x)) \
-                    ), \
-                    fixed_wide_mul( \
-                        wide_from_int( \
-                            $signed({1'b0, out_data_o.v1.name}) - \
-                            $signed({1'b0, out_data_o.v0.name}) \
-                        ), \
-                        from_fixed(fixed_point_sub(out_data_o.v0.x, out_data_o.v2.x)) \
-                    ) \
-                ), \
-                inverse_area_reg \
-            )
+        current_dy = fixed_wide_mul(
+                fixed_wide_sub(
+                    fixed_wide_mul(
+                        wide_from_int(
+                            $signed({1'b0, current_attribute_v2}) -
+                            $signed({1'b0, current_attribute_v0})
+                        ),
+                        from_fixed(fixed_point_sub(out_data_o.v0.x, out_data_o.v1.x))
+                    ),
+                    fixed_wide_mul(
+                        wide_from_int(
+                            $signed({1'b0, current_attribute_v1}) -
+                            $signed({1'b0, current_attribute_v0})
+                        ),
+                        from_fixed(fixed_point_sub(out_data_o.v0.x, out_data_o.v2.x))
+                    )
+                ),
+                inverse_area_reg
+            );
 
-        out_data_comb.R_dx = `ATTR_DX(r);
-        out_data_comb.R_dy = `ATTR_DY(r);
-        out_data_comb.G_dx = `ATTR_DX(g);
-        out_data_comb.G_dy = `ATTR_DY(g);
-        out_data_comb.B_dx = `ATTR_DX(b);
-        out_data_comb.B_dy = `ATTR_DY(b);
-
-        next_state = Done;
+        if (current_delta == CalculatingGreen) begin
+          // Last attribute calculated, move to Done
+          next_state = Done;
+        end else begin
+          next_state = CalculatingDeltas;
+        end
       end
       Done: begin
         in_vert_ready_o = 0;
@@ -371,5 +410,7 @@ module binner #(
       end
     endcase
   end
+
+  assign out_busy_o = (state != Aggregating) || vertex_count != 0;
 
 endmodule

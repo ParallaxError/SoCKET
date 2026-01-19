@@ -6,7 +6,7 @@
  * Fragments are output in pixel buffer format to be fragment shaded, then written to the output FIFO aggregator.
  *
  * -----
- * Last Modified: Sunday, 30th November 2025 1:08 am
+ * Last Modified: Sunday, 18th January 2026 10:17 pm
  * -----
  */
 
@@ -45,7 +45,8 @@ module raster_shader #(
     // output streaming iface
     input  logic                                         out_ready_i,
     output fragment_pkg::fragment_t                      out_data_o,
-    output logic                                         out_valid_o
+    output logic                                         out_valid_o,
+    output logic                                         out_busy_o
 );
   // Imports
   import rendering_pkg::*;
@@ -164,7 +165,7 @@ module raster_shader #(
   logic [$clog2(SCREEN_WIDTH * SCREEN_HEIGHT):0] max_index;
 
   // Next state sequential logic
-  always_ff @(posedge clk_i or posedge rst_i)
+  always_ff @(posedge clk_i)
   begin
       // Locals for max checking
       int top_left_x;
@@ -419,5 +420,7 @@ module raster_shader #(
         end
       endcase
   end
+
+  assign out_busy_o = state != Idle;
 
 endmodule

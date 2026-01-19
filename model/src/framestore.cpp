@@ -53,6 +53,28 @@ int Framestore::getTriangleIndex(int x, int y) const
     throw std::out_of_range("Pixel coordinates out of bounds");
 }
 
+void Framestore::dumpGoldenData(const std::string& filename) const
+{
+    std::ofstream outfile(filename, std::ios::app);
+    if (!outfile.is_open()) {
+        throw std::runtime_error("Failed to open file for writing golden data");
+    }
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const pixel_t& pixel = pixel_data[y][x];
+            int triangleIndex = triangle_indices[y][x];
+            outfile << x << " " << (height - 1 - y) << " "
+                    << static_cast<int>(pixel.r) << " "
+                    << static_cast<int>(pixel.g) << " "
+                    << static_cast<int>(pixel.b) << " "
+                    << triangleIndex << "\n";
+        }
+    }
+
+    outfile.close();
+}
+
 void Framestore::dumpAsBitmap(const std::string& filename) const
 {
     // Convert pixel data to raw RGB format

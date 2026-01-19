@@ -7,7 +7,7 @@
  * Currently uses a 128 lookup table for initial approximation, followed by 2 Newton-Raphson iterations. 
  * 
  * -----
- * Last Modified: Thursday, 27th November 2025 10:22 pm
+ * Last Modified: Sunday, 18th January 2026 10:17 pm
  * -----
  */
 
@@ -81,8 +81,8 @@ module reciprocal # (
   // Function: normalize denominator into range [1,2) and return shift/sign/zero flag
   function automatic normalised_t normalize_den(input fixed_t d);
     normalised_t r;
-    logic [FIXED_WIDTH-1:0] abs_val;
-    int msb;
+    logic [FIXED_WIDTH-1:0]              abs_val;
+    logic signed [$clog2(FIXED_WIDTH):0] msb;
 
     // First step is to find the absolute value and sign
     r.sign = d.value[FIXED_WIDTH-1];
@@ -107,8 +107,8 @@ module reciprocal # (
     end
     else
     begin
-      int S;
-      logic [FIXED_WIDTH-1:0] norm_bits;
+      logic signed [SHIFT_WIDTH-1:0] S;
+      logic [FIXED_WIDTH-1:0]        norm_bits;
 
       r.is_zero = 1'b0;
 
@@ -132,7 +132,7 @@ module reciprocal # (
   fixed_t normalised_denominator;
 
   // Sequential logic
-  always_ff @(posedge clk_i or posedge rst_i) begin
+  always_ff @(posedge clk_i) begin
     if (rst_i) begin
       state <= Idle;
       iteration <= 0;
@@ -189,7 +189,7 @@ module reciprocal # (
       begin
         if (in_valid_i) 
         begin
-          next_state = Iterate;
+          next_state = (ITERATIONS > 0) ? Iterate : Multiply;
         end
       end
       Iterate: 

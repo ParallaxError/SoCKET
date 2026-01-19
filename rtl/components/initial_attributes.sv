@@ -9,7 +9,7 @@
  * DSPs with another module that calculates initial triangle attributes.
  * 
  * -----
- * Last Modified: Saturday, 29th November 2025 8:21 pm
+ * Last Modified: Sunday, 18th January 2026 10:17 pm
  * -----
  */
 
@@ -35,14 +35,15 @@ module initial_attributes # (
 );
 
 // Indexes and state
-int   idx;  // round-robin start pointer
-int   next_idx;
+localparam int TOTAL_BINS = NUM_BINS_X * NUM_BINS_Y;
+logic [$clog2(TOTAL_BINS)-1:0]  idx;  // round-robin start pointer
+logic [$clog2(TOTAL_BINS)-1:0]  next_idx;
 
 triangle_attribute_pkg::triangle_attributes_t triangle_attrs_o_comb;
 logic                                         out_valid_o_comb[NUM_BINS_X][NUM_BINS_Y];
 
 // Sequential logic: Updating the next selected bin
-always_ff @(posedge clk_i or posedge rst_i) begin
+always_ff @(posedge clk_i) begin
   if (rst_i) begin
     idx <= 0;
   end else begin
@@ -60,7 +61,7 @@ end
 // Then, update the next selected index to start from the next idx on the next cycle
 always_comb begin
   logic found;
-  int   found_idx;
+  logic [$clog2(TOTAL_BINS)-1:0]  found_idx;
   found = 0;
   found_idx = 0;
   
@@ -74,7 +75,7 @@ always_comb begin
   triangle_attrs_o_comb = '{default: '0};
   // Scan for next valid input
   for (int i = 0; i < NUM_BINS_X*NUM_BINS_Y; i++) begin
-    int j;
+    logic [$clog2(TOTAL_BINS)-1:0] j;
     j = (idx + i) % (NUM_BINS_X*NUM_BINS_Y);
 
     if (in_valid_i[j/NUM_BINS_Y][j%NUM_BINS_Y]) begin

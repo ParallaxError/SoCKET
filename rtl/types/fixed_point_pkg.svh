@@ -7,7 +7,7 @@
  * https://www.chipverify.com/systemverilog/systemverilog-package
  *
  * -----
- * Last Modified: Tuesday, 2nd December 2025 10:46 pm
+ * Last Modified: Sunday, 18th January 2026 1:34 pm
  * -----
  */
 
@@ -16,8 +16,8 @@
 package fixed_point_pkg;
 
   // Configurable parameters
-  parameter int FIXED_WIDTH = 32;
-  parameter int FIXED_FRAC = 16;
+  parameter int FIXED_WIDTH = 20;
+  parameter int FIXED_FRAC = 9;
 
   typedef struct packed {logic signed [FIXED_WIDTH-1:0] value;} fixed_t;
 
@@ -69,10 +69,10 @@ package fixed_point_pkg;
   // Multiply two fixed point numbers
   function automatic fixed_t fixed_point_mult(fixed_t a, fixed_t b);
     fixed_t result;
-    logic signed [FIXED_WIDTH * 2 - 1:0] product;
+    (* use_dsp = "yes", mult_style = "dsp" *) logic signed [FIXED_WIDTH * 2 - 1:0] product;
 
     // Multiply the raw values, then shift right by the number of fractional bits
-    product = a.value * b.value;
+    (* use_dsp = "yes", mult_style = "dsp" *) product = a.value * b.value;
     result.value = product[FIXED_WIDTH+FIXED_FRAC-1-:FIXED_WIDTH];
     return result;
   endfunction

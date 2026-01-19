@@ -13,7 +13,7 @@
 `define FIXED_POINT_WIDE_PKG_SV
 
 `include "types/fixed_point_pkg.svh"
-;
+
 package fixed_point_wide_pkg;
   import fixed_point_pkg::*;
 
@@ -78,9 +78,9 @@ package fixed_point_wide_pkg;
   function automatic fixed_wide_t fixed_wide_mul(fixed_wide_t a, fixed_wide_t b);
     fixed_wide_t result;
     // Extra size needed to hold full product
-    logic signed [(2*FIXED_WIDE_WIDTH)-1:0] full;
+    (* use_dsp = "yes", mult_style = "dsp" *) logic signed [(2*FIXED_WIDE_WIDTH)-1:0] full;
     // Multiply and adjust for fixed point fractional bits
-    full = a.value * b.value;
+    (* use_dsp = "yes", mult_style = "dsp" *) full = a.value * b.value;
     result.value = full >>> (FIXED_WIDE_FRAC);
 
     return result;

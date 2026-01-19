@@ -6,7 +6,7 @@
  * Exposes simple interface with ready (empty_o/full_o) handshaking.
  *
  * -----
- * Last Modified: Monday, 24th November 2025 11:06 pm
+ * Last Modified: Sunday, 18th January 2026 10:00 pm
  * -----
  */
 

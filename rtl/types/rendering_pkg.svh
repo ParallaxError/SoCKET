@@ -4,7 +4,7 @@
  * Rendering-specific definitions and constants for the graphics pipeline.
  *
  * -----
- * Last Modified: Saturday, 29th November 2025 8:14 pm
+ * Last Modified: Sunday, 18th January 2026 9:41 pm
  * -----
  */
 
@@ -19,7 +19,7 @@ package rendering_pkg;
 
     // Bin size
     localparam int BIN_WIDTH     = 160;
-    localparam int BIN_HEIGHT    = 240;
+    localparam int BIN_HEIGHT    = 160;
 endpackage : rendering_pkg
 
 `endif // RENDERING_PKG_SV

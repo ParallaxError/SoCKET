@@ -6,3 +6,4 @@ model/bin
 model/socket
 model/test.py
 model/output.bmp
+*_golden_data.txt

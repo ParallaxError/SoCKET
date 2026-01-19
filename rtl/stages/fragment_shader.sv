@@ -5,7 +5,7 @@
  * Currently, just acts as a pass-through.
  *
  * -----
- * Last Modified: Saturday, 29th November 2025 11:36 pm
+ * Last Modified: Saturday, 17th January 2026 8:36 pm
  * -----
  */
 
@@ -24,7 +24,8 @@ module fragment_shader (
     // output streaming iface
     input  logic                      out_ready_i,
     output pixels_pkg::pixel_buffer_t out_data_o,
-    output logic                      out_valid_o
+    output logic                      out_valid_o,
+    output logic                      out_busy_o
 );
   // Imports
   import fragment_pkg::*;
@@ -37,9 +38,9 @@ module fragment_shader (
 
   always_comb begin
     // Default outputs
-    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].r = in_data_i.r[7:3];
-    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].g = in_data_i.g[7:2];
-    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].b = in_data_i.b[7:3];
+    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].r = in_data_i.r[7:8-RED_DEPTH];
+    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].g = in_data_i.g[7:8-GREEN_DEPTH];
+    out_data_comb.pixels[in_data_i.x%PIXELS_PER_WORD].b = in_data_i.b[7:8-BLUE_DEPTH];
   end
 
   assign out_valid_o             = in_valid_i;
@@ -47,5 +48,6 @@ module fragment_shader (
   assign out_data_o.x            = in_data_i.x / PIXELS_PER_WORD;
   assign out_data_o.y            = in_data_i.y;
   assign out_data_o.valid_pixels = 1 << (in_data_i.x % PIXELS_PER_WORD);
+  assign out_busy_o              = !out_ready_i; // Purely combinatorial, so only busy when waiting for consumer
 
 endmodule

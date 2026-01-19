@@ -5,7 +5,7 @@
  * Used to combine the raster units FIFOs into a single output stream.
  *
  * -----
- * Last Modified: Thursday, 6th November 2025 12:27 am
+ * Last Modified: Sunday, 18th January 2026 10:17 pm
  * -----
  */
 
@@ -36,11 +36,11 @@ module sync_fifo_aggregator #(
   endfunction
 
   // Indexes and state
-  int   idx;  // round-robin start pointer
-  int   next_idx;
+  logic [$clog2(NUM_INPUTS)-1:0] idx;  // round-robin start pointer
+  logic [$clog2(NUM_INPUTS)-1:0] next_idx;
 
   // Sequential logic: Updating the next selected input
-  always_ff @(posedge clk_i or posedge rst_i) begin
+  always_ff @(posedge clk_i) begin
     if (rst_i) begin
       idx <= 0;
     end else begin
@@ -53,10 +53,11 @@ module sync_fifo_aggregator #(
   // Once that is valid, assert output valid and forward data
   // Then, update the next selected index to start from the next idx on the next cycle
   always_comb begin
-    logic found;
-    int   found_idx;
+    logic                          found;
+    logic [$clog2(NUM_INPUTS)-1:0] found_idx;
     found = 0;
     found_idx = 0;
+    out_valid_o = 1'b0;
 
     // Default outputs
     out_data_o = zero_T();
@@ -67,7 +68,7 @@ module sync_fifo_aggregator #(
     next_idx = idx;
     // Scan for next valid input
     for (int i = 0; i < NUM_INPUTS; i++) begin
-      int j;
+      logic [$clog2(NUM_INPUTS)-1:0] j;
       j = (idx + i) % NUM_INPUTS;
 
       if (in_valid_i[j]) begin
@@ -87,67 +88,6 @@ module sync_fifo_aggregator #(
       out_valid_o = 1'b1;
       next_idx = (found_idx + 1) % NUM_INPUTS;
     end
-  end 
-
-  // int   selected;  // currently selected input index
-  // logic selected_valid;  // whether a selection is active
-
-  // // Registered outputs
-  // T     out_data_reg;
-  // logic out_valid_reg;
-
-  // // Sequential logic: select next input and forward when downstream accepts
-  // always_ff @(posedge clk_i or posedge rst_i) begin
-  //   if (rst_i) begin
-  //     idx <= 0;
-  //     selected <= 0;
-  //     selected_valid <= 0;
-  //     out_data_reg <= zero_T();
-  //     out_valid_reg <= 0;
-  //   end else begin
-  //     if (!selected_valid) begin
-  //       // find next available valid stream in round-robin order
-  //       logic found;
-  //       found = 0;
-
-  //       for (int i = 0; i < NUM_INPUTS; i++) begin
-  //         int j;
-  //         j = (idx + i) % NUM_INPUTS;
-
-  //         if (in_valid_i[j]) begin
-  //           selected <= j;
-  //           selected_valid <= 1;
-  //           out_data_reg <= in_data_i[j];
-  //           out_valid_reg <= 1;
-  //           found = 1;
-  //           break;
-  //         end
-  //       end
-  //       if (!found) begin
-  //         out_valid_reg <= 0;
-  //       end
-  //     end else begin
-  //       // We have a selected input being presented to the consumer
-  //       if (out_ready_i) begin
-  //         // handshake complete: advance pointer and clear selection
-  //         idx <= (selected + 1) % NUM_INPUTS;
-  //         selected_valid <= 0;
-  //         out_valid_reg <= 0;
-  //       end
-  //     end
-  //   end
-  // end
-
-  // // Drive outputs
-  // assign out_data_o  = out_data_reg;
-  // assign out_valid_o = out_valid_reg;
-
-  // // Per-input ready: only the selected input sees ready and only when downstream ready
-  // genvar gi;
-  // generate
-  //   for (gi = 0; gi < NUM_INPUTS; gi++) begin : gen_in_ready
-  //     assign in_ready_o[gi] = (selected_valid && (selected == gi)) ? out_ready_i : 1'b0;
-  //   end
-  // endgenerate
+  end
 
 endmodule

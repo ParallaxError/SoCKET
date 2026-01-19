@@ -124,6 +124,65 @@ void GPU::rasterizeTriangle(const triangle_t& triangle)
     int minY = std::min({triangle.v0.y.toDouble(), triangle.v1.y.toDouble(), triangle.v2.y.toDouble()});
     int maxY = std::max({triangle.v0.y.toDouble(), triangle.v1.y.toDouble(), triangle.v2.y.toDouble()});
 
+    // Barycentric interpolation: figure out attributes and their deltas
+    FixedPoint<18, 18> inverseArea = FixedPoint<18, 18>(1.0) / edgeFunction(triangle.v0, triangle.v1, triangle.v2.x, triangle.v2.y);
+
+    // Interpolation with deltass
+    constexpr int SHIFT = 18 - 9;
+    FixedPoint<18, 18> v0v2y, v0v1y, v0v1x, v0v2x;
+    v0v2y.value = (triangle.v0.y.value - triangle.v2.y.value) << SHIFT;
+    v0v1y.value = (triangle.v0.y.value - triangle.v1.y.value) << SHIFT;
+    v0v1x.value = (triangle.v0.x.value - triangle.v1.x.value) << SHIFT;
+    v0v2x.value = (triangle.v0.x.value - triangle.v2.x.value) << SHIFT;
+
+    FixedPoint<18, 18> R_dx = 
+        ((FixedPoint<18, 18>(triangle.v1.r - triangle.v0.r) * v0v2y) -
+         (FixedPoint<18, 18>(triangle.v2.r - triangle.v0.r) * v0v1y))
+        * inverseArea;
+    FixedPoint<18, 18> R_dy = 
+        ((FixedPoint<18, 18>(triangle.v2.r - triangle.v0.r) * v0v1x) -
+         (FixedPoint<18, 18>(triangle.v1.r - triangle.v0.r) * v0v2x))
+        * inverseArea;
+    FixedPoint<18, 18> G_dx = 
+        ((FixedPoint<18, 18>(triangle.v1.g - triangle.v0.g) * v0v2y) -
+         (FixedPoint<18, 18>(triangle.v2.g - triangle.v0.g) * v0v1y))
+        * inverseArea;
+    FixedPoint<18, 18> G_dy = 
+        ((FixedPoint<18, 18>(triangle.v2.g - triangle.v0.g) * v0v1x) -
+         (FixedPoint<18, 18>(triangle.v1.g - triangle.v0.g) * v0v2x))
+        * inverseArea;
+    FixedPoint<18, 18> B_dx = 
+        ((FixedPoint<18, 18>(triangle.v1.b - triangle.v0.b) * v0v2y) -
+         (FixedPoint<18, 18>(triangle.v2.b - triangle.v0.b) * v0v1y))
+        * inverseArea;
+    FixedPoint<18, 18> B_dy = 
+        ((FixedPoint<18, 18>(triangle.v2.b - triangle.v0.b) * v0v1x) -
+         (FixedPoint<18, 18>(triangle.v1.b - triangle.v0.b) * v0v2x))
+        * inverseArea;
+
+    // Next, find initial R, G and B
+    // Promote minX, minY to FixedPoint<11,9> then to <18,18> to match vertex positions
+    FixedPoint<11, 9> minX_fp(static_cast<double>(minX));
+    FixedPoint<11, 9> minY_fp(static_cast<double>(minY));
+    FixedPoint<18, 18> minX_wide; minX_wide.value = (static_cast<int64_t>(minX_fp.value) << SHIFT);
+    FixedPoint<18, 18> minY_wide; minY_wide.value = (static_cast<int64_t>(minY_fp.value) << SHIFT);
+    
+    FixedPoint<18, 18> v0x_wide; v0x_wide.value = (static_cast<int64_t>(triangle.v0.x.value) << SHIFT);
+    FixedPoint<18, 18> v0y_wide; v0y_wide.value = (static_cast<int64_t>(triangle.v0.y.value) << SHIFT);
+    
+    FixedPoint<18, 18> R_start = 
+        FixedPoint<18, 18>(triangle.v0.r) +
+        R_dx * (minX_wide - v0x_wide) +
+        R_dy * (minY_wide - v0y_wide);
+    FixedPoint<18, 18> G_start = 
+        FixedPoint<18, 18>(triangle.v0.g) +
+        G_dx * (minX_wide - v0x_wide) +
+        G_dy * (minY_wide - v0y_wide);
+    FixedPoint<18, 18> B_start = 
+        FixedPoint<18, 18>(triangle.v0.b) +
+        B_dx * (minX_wide - v0x_wide) +
+        B_dy * (minY_wide - v0y_wide);    
+
     // Iterate over bounding box, finding pixels inside the triangle
     for (int y = minY; y <= maxY; y++) {
         for (int x = minX; x <= maxX; x++) {
@@ -136,21 +195,9 @@ void GPU::rasterizeTriangle(const triangle_t& triangle)
                 // Inside the triangle, write pixel to framestore
                 pixel_t pixel;
                 
-                // Barycentric coordinates for color interpolation
-                FixedPoint<18, 18> area = edgeFunction(triangle.v0, triangle.v1, triangle.v2.x, triangle.v2.y);
-                FixedPoint<18, 18> lambda0 = w0 / area;
-                FixedPoint<18, 18> lambda1 = w1 / area;
-                FixedPoint<18, 18> lambda2 = w2 / area;
-
-                pixel.r = static_cast<unsigned char>(lambda0.toDouble() * triangle.v0.r +
-                                                    lambda1.toDouble() * triangle.v1.r +
-                                                    lambda2.toDouble() * triangle.v2.r);
-                pixel.g = static_cast<unsigned char>(lambda0.toDouble() * triangle.v0.g +
-                                                    lambda1.toDouble() * triangle.v1.g +
-                                                    lambda2.toDouble() * triangle.v2.g);
-                pixel.b = static_cast<unsigned char>(lambda0.toDouble() * triangle.v0.b +
-                                                    lambda1.toDouble() * triangle.v1.b +
-                                                    lambda2.toDouble() * triangle.v2.b);
+                pixel.r = static_cast<unsigned char>(R_start.toDouble() + R_dx.toDouble() * (x - minX) + R_dy.toDouble() * (y - minY));
+                pixel.g = static_cast<unsigned char>(G_start.toDouble() + G_dx.toDouble() * (x - minX) + G_dy.toDouble() * (y - minY));
+                pixel.b = static_cast<unsigned char>(B_start.toDouble() + B_dx.toDouble() * (x - minX) + B_dy.toDouble() * (y - minY));
 
                 // Truncate to 8 bit colour (3 3 2)
                 pixel.r = (pixel.r >> 5) << 5;

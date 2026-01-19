@@ -1,3 +1,5 @@
+// Includes
+`include "types/rendering_pkg.svh"
 `include "types/vertex_pkg.svh"
 `include "types/fixed_point_pkg.svh"
 `include "types/mat4x4_pkg.svh"
@@ -8,6 +10,7 @@ import "DPI-C" function void writescreen (
 );
 
 module top_tb();
+  import rendering_pkg::*;
   import vertex_pkg::*;
   import fixed_point_pkg::*;
   import mat4x4_pkg::*;
@@ -18,7 +21,6 @@ module top_tb();
   
   // Testbench signals
   int          vertices_left;
-  int          out_valid_counter; // Count 100 cycles of constant valid low, that means we're done
 
   // Input FIFO
   logic        in_rd_en;
@@ -75,6 +77,7 @@ module top_tb();
   logic               gpu_ready;
   pixel_buffer_t      gpu_data;
   logic               gpu_valid;
+  logic               gpu_done;
 
   // Input matrix
   mat4x4_t mvp;
@@ -91,11 +94,19 @@ module top_tb();
 
       .out_ready_i  (!out_full),
       .out_data_o   (gpu_data),
-      .out_valid_o  (gpu_valid)
+      .out_valid_o  (gpu_valid),
+      .out_done_o   (gpu_done)
   );
 
   // GPU should ask for data when input FIFO is not empty
   assign in_rd_en = gpu_ready && !in_empty;
+
+  // Virtual framestore for output pixels
+  pixel_t framestore [0:SCREEN_WIDTH-1][0:SCREEN_HEIGHT-1];
+  
+  // Finally, list of times for which each triangle entered the pipeline for debug
+  time triangle_entry_times[];
+  int fd; // Golden data file descriptor
 
   // Clock generation
   initial begin
@@ -103,25 +114,25 @@ module top_tb();
       forever #1 clk = ~clk; // 2 time units clock period
   end
 
-  int out_count = 0;
-
+  `ifdef VERILATOR
   initial begin
-      $dumpfile("wave/top_tb.fst"); // output VCD
+      $dumpfile("wave/top_tb.fst"); // output FST
       $dumpvars(0, top_tb);         // 0 = dump everything in hierarchy
   end
+  `endif // VERILATOR
 
   // Test sequence
   initial begin
       int num_vertices = 0;
       vertex_t test_vertex;
 
-      // Open the vertices file
-      int fd = $fopen("test_data/input.verts", "r");
+      // Open the golden data file
+      fd = $fopen("model/test_triangle.verts_golden_data.txt", "r");
       // Very first line is the number of vertices
       $fscanf(fd, "%d\n", num_vertices);
       $display("Number of vertices to load: %0d", num_vertices);
       vertices_left = num_vertices;
-      $display("Vertices left to process: %0d", vertices_left);
+      triangle_entry_times = new[num_vertices / 3];
 
       // First 4 lines are the first 4 rows of the matrix
       // Read 4 floats 4 times and set it
@@ -172,15 +183,13 @@ module top_tb();
 
           vertices_left--;
 
-          // $display("[%0t] Enqueued vertex %0d: x=%f y=%f z=%f r=%0h g=%0h b=%0h",
-          //         $time, i,
-          //         to_real(test_vertices[i].x), to_real(test_vertices[i].y),
-          //         to_real(test_vertices[i].z), test_vertices[i].r,
-          //         test_vertices[i].g, test_vertices[i].b);
+          // Record the time this triangle entered the pipeline
+          if (i % 3 == 0) begin
+              triangle_entry_times[i / 3] = $time;
+          end
       end
 
       $display("\nTest completed successfully.");
-      // $finish;
   end
 
   // GPU output handling
@@ -190,50 +199,73 @@ module top_tb();
       while (1) begin
           @ (posedge clk);
           if (!out_empty) begin
-              out_count++;
               out_rd_en = 1;
               wait (out_rd_data_valid);
-              // $display("[%0t] Output pixel %0d: x=%0d y=%0d",
-              //         $time, out_count,
-              //         out_rd_data.x, out_rd_data.y);
 
               for (int p = 0; p < $bits(out_rd_data.valid_pixels); p++) begin
                   if (!out_rd_data.valid_pixels[p]) continue;
 
-                  // $display("Pixel %0d: r=%0h g=%0h b=%0h", p,
-                  //          out_rd_data.pixels[p].r,
-                  //          out_rd_data.pixels[p].g,
-                  //          out_rd_data.pixels[p].b);
-
                   writescreen(
-                      out_rd_data.pixels[p].r,
-                      out_rd_data.pixels[p].g,
-                      out_rd_data.pixels[p].b,
+                      out_rd_data.pixels[p].r << (8 - RED_DEPTH),
+                      out_rd_data.pixels[p].g << (8 - GREEN_DEPTH),
+                      out_rd_data.pixels[p].b << (8 - BLUE_DEPTH),
                       out_rd_data.x * PIXELS_PER_WORD + p,
                       out_rd_data.y
                   );
+
+                  // Also store to virtual framestore for later comparison
+                  framestore[out_rd_data.x * PIXELS_PER_WORD + p][out_rd_data.y] = out_rd_data.pixels[p];
               end
+              @ (posedge clk);
               out_rd_en = 0;
           end
-          // $finish;
       end
   end
 
-  // Check for 100 cycles of no output to finish simulation
+  // Wait for GPU to finish processing and compare to golden data
   initial begin
-      out_valid_counter = 0;
-      forever begin
-          @ (posedge clk);
-          if (vertices_left > 0 || !out_empty) begin
-              out_valid_counter = 0;
-          end else begin
-              out_valid_counter++;
-              if (out_valid_counter >= 10000) begin
-                  $display("\nNo more output from GPU after %0d cycles. Test complete.", out_valid_counter);
-                  $finish;
+    pixel_t stored_pixel;
+    int golden_x, golden_y, golden_r, golden_g, golden_b, golden_index;
+    int red, green, blue;
+    int errors = 0;
+    forever begin
+        @ (posedge clk);
+        if (vertices_left == 0) begin
+            if (gpu_done) begin
+              $display("\nGPU signalled done at time %0t. Performing comparison with golden data...", $time);
+              wait (out_empty); // Wait for all output to be read
+              // Each line left in the golden data file is an output pixel in the format
+              // x y R G B index
+              while (!$feof(fd)) begin
+                  $fscanf(fd, "%d %d %d %d %d %d\n", golden_x, golden_y, golden_r, golden_g, golden_b, golden_index);
+
+
+                  // Now compare with framestore
+                  stored_pixel = framestore[golden_x][golden_y];
+
+                  // Convert RGB to 8 bit colour with shifting
+                  red = stored_pixel.r << (8 - RED_DEPTH);
+                  green = stored_pixel.g << (8 - GREEN_DEPTH);
+                  blue = stored_pixel.b << (8 - BLUE_DEPTH);
+
+                  if (red !== golden_r || green !== golden_g || blue !== golden_b) begin
+                      $warning("Mismatch at pixel (%0d, %0d): Expected (R:%0d G:%0d B:%0d), Got (R:%0d G:%0d B:%0d)",
+                          golden_x, golden_y,
+                          golden_r, golden_g, golden_b,
+                          red, green, blue
+                      );
+                      $warning("The triangle that rendered this pixel entered the pipeline at time %0t",
+                          triangle_entry_times[golden_index]
+                      );
+                      errors++;
+                  end
               end
-          end
-      end
+
+              $display("Comparison complete. Total errors: %0d", errors);
+              $finish;
+            end
+        end
+    end
   end
 
   // Timeout to prevent infinite simulation

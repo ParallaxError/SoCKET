@@ -8,7 +8,7 @@
  * Currently uses a 128 lookup table for initial approximation, followed by 2 Newton-Raphson iterations. 
  * 
  * -----
- * Last Modified: Thursday, 27th November 2025 10:21 pm
+ * Last Modified: Sunday, 18th January 2026 10:17 pm
  * -----
  */
 
@@ -17,7 +17,7 @@
 
 module inverse_area # (
     parameter int LUT_SIZE =   128,         
-    parameter int ITERATIONS = 2
+    parameter int ITERATIONS = 1
 ) (
     input  logic                              clk_i,
     input  logic                              rst_i,
@@ -52,7 +52,7 @@ module inverse_area # (
       real recip; 
       denom = 1.0 + (real'(i) / real'(LUT_SIZE));
       recip = 1.0 / denom;
-      lut[i] = from_fixed(from_real(recip));
+      lut[i] = wide_from_real(recip);
     end
   end
 
@@ -83,7 +83,7 @@ module inverse_area # (
   function automatic normalised_t normalize_den(input fixed_wide_t d);
     normalised_t r;
     logic [FIXED_WIDE_WIDTH-1:0] abs_val;
-    int msb;
+    logic signed [$clog2(FIXED_WIDE_WIDTH):0] msb;
 
     // First step is to find the absolute value and sign
     r.sign = d.value[FIXED_WIDE_WIDTH-1];
@@ -108,8 +108,8 @@ module inverse_area # (
     end
     else
     begin
-      int S;
-      logic [FIXED_WIDE_WIDTH-1:0] norm_bits;
+      logic signed [SHIFT_WIDTH-1:0] S;
+      logic [FIXED_WIDE_WIDTH-1:0]   norm_bits;
 
       r.is_zero = 1'b0;
 
@@ -133,7 +133,7 @@ module inverse_area # (
   fixed_wide_t normalised_denominator;
 
   // Sequential logic
-  always_ff @(posedge clk_i or posedge rst_i) begin
+  always_ff @(posedge clk_i) begin
     if (rst_i) begin
       state <= Idle;
       iteration <= 0;

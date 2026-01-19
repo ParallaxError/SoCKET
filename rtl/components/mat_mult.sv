@@ -5,7 +5,7 @@
  * Currently pipelined in 4 cycles, one for each row of the matrix.
  *
  * -----
- * Last Modified: Thursday, 27th November 2025 10:22 pm
+ * Last Modified: Sunday, 18th January 2026 9:22 pm
  * -----
  */
 
@@ -67,7 +67,7 @@ module mat_mult (
   logic [1:0] row_counter;  // Current row being processed
 
   // Next state sequential logic
-  always_ff @(posedge clk_i or posedge rst_i) begin
+  always_ff @(posedge clk_i) begin
     if (rst_i) begin
       state <= Idle;
       row_counter <= 2'b00;

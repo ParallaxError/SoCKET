@@ -8,7 +8,7 @@
  * Details on the Matrix Multiplication Units used are in rtl/components/mat_mult.sv.
  *
  * -----
- * Last Modified: Thursday, 27th November 2025 10:22 pm
+ * Last Modified: Sunday, 18th January 2026 8:17 pm
  * -----
  */
 
@@ -32,7 +32,8 @@ module vertex_shader (
     // output streaming iface
     input  logic                out_ready_i,
     output vertex_pkg::vertex_t out_data_o,
-    output logic                out_valid_o
+    output logic                out_valid_o,
+    output logic                out_busy_o // Indicates stage not idle
 );
   // Imports
   import fixed_point_pkg::*;
@@ -125,7 +126,7 @@ module vertex_shader (
       .out_valid_o        (z_div_valid)
   );
 
-  always_ff @(posedge clk_i or posedge rst_i) begin
+  always_ff @(posedge clk_i) begin
     if (rst_i) begin
       x_in_valid <= 1'b0;
       y_in_valid <= 1'b0;
@@ -184,5 +185,8 @@ module vertex_shader (
       end
     end
   end
+
+  // Busy when any sub-module is busy (not ready to accept input as none are pipelined)
+  assign out_busy_o = !(in_ready_o && x_div_ready && y_div_ready && z_div_ready);
 
 endmodule

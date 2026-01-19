@@ -33,6 +33,12 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    // Copy file to golden data output, later will append golden data
+    std::ofstream goldenDataFile(std::string(argv[1]) + "_golden_data.txt");
+    goldenDataFile << inputFile.rdbuf();
+    goldenDataFile.close();
+    inputFile.seekg(0, std::ios::beg);
+
     // First line: number of vertices
     int numVertices;
     inputFile >> numVertices;
@@ -64,6 +70,7 @@ int main(int argc, char* argv[])
 
     // Dump framestore contents
     framestore.dumpAsBitmap("output.bmp");
+    framestore.dumpGoldenData(std::string(argv[1]) + "_golden_data.txt");
     
     return 0;
 }

@@ -6,7 +6,7 @@
  * we define a packed structure to hold multiple pixels.
  *
  * -----
- * Last Modified: Saturday, 29th November 2025 11:36 pm
+ * Last Modified: Sunday, 18th January 2026 10:16 pm
  * -----
  */
 
@@ -18,10 +18,14 @@ package pixels_pkg;
   import rendering_pkg::*;
 
   // Single pixel structure
+  parameter int RED_DEPTH = 5;
+  parameter int GREEN_DEPTH = 6;
+  parameter int BLUE_DEPTH = 5;
+
   typedef struct packed {
-    logic [4:0] r;
-    logic [5:0] g;
-    logic [4:0] b;
+    logic [RED_DEPTH-1:0] r;
+    logic [GREEN_DEPTH-1:0] g;
+    logic [BLUE_DEPTH-1:0] b;
   } pixel_t;
 
   // 32 bit buffer holding as many pixels as possible, with a signal

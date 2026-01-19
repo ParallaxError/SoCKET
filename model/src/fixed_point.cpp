@@ -163,7 +163,7 @@ FixedPoint<INT_BITS, FRAC_BITS> FixedPoint<INT_BITS, FRAC_BITS>::operator/(const
             
         // Get LUT index from top bits of normalised denominator
         // lut_idx = $unsigned(normalised_struct.norm.value[FIXED_FRAC-1 -: LUT_ADDR_WIDTH]);
-        int lutIndex = (norm.value >> (FRAC_BITS - 1 - LUT_ADDR_WIDTH)) & ((1 << LUT_ADDR_WIDTH) - 1);
+        int lutIndex = (norm.value >> (FRAC_BITS - LUT_ADDR_WIDTH)) & ((1 << LUT_ADDR_WIDTH) - 1);
         reciprocal = RECIP_LUT<INT_BITS, FRAC_BITS>[lutIndex];
     }
 

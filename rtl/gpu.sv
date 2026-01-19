@@ -7,7 +7,7 @@
  * Exposes signals to show if the GPU is busy processing data or has data to output.
  *
  * -----
- * Last Modified: Tuesday, 2nd December 2025 10:28 pm
+ * Last Modified: Sunday, 18th January 2026 10:16 pm
  * -----
  */
 
@@ -32,7 +32,8 @@ module gpu (
     // Output streaming iface
     input  logic                      out_ready_i,
     output pixels_pkg::pixel_buffer_t out_data_o,
-    output logic                      out_valid_o
+    output logic                      out_valid_o,
+    output logic                      out_done_o // One cycle pulse when all data has been processed
 );
   // Imports
   import rendering_pkg::*;
@@ -46,6 +47,7 @@ module gpu (
   logic    vs_out_ready;
   logic    vs_out_valid;
   vertex_t vs_out_data;
+  logic    vs_busy;
 
   vertex_shader vertex_shader_inst (
       .clk_i      (clk_i),
@@ -59,13 +61,15 @@ module gpu (
 
       .out_ready_i(!vs_binner_full),
       .out_data_o (vs_out_data),
-      .out_valid_o(vs_out_valid)
+      .out_valid_o(vs_out_valid),
+      .out_busy_o (vs_busy)
   );
 
   // VS out -> Binner in FIFO
   logic    vs_binner_full;
   vertex_t vs_binner_out_data;
   logic    vs_binner_out_data_valid;
+  logic    vs_binner_empty;
 
   sync_fifo #(
       .T(vertex_t),
@@ -75,7 +79,7 @@ module gpu (
       .rst_i          (rst_i),
 
       .rd_en_i        (vs_out_ready),
-      .empty_o        (),
+      .empty_o        (vs_binner_empty),
       .rd_data_o      (vs_binner_out_data),
       .rd_data_valid_o(vs_binner_out_data_valid),
 
@@ -93,6 +97,7 @@ module gpu (
   logic      binner_out_valid[NUM_BINS_X][NUM_BINS_Y];
   logic      binner_out_ready[NUM_BINS_X][NUM_BINS_Y];
   triangle_t binner_out_data;
+  logic      binner_busy;
 
   binner #(
       .BIN_WIDTH (BIN_WIDTH),
@@ -107,15 +112,18 @@ module gpu (
 
       .out_ready_i    (binner_out_ready),
       .out_data_o     (binner_out_data),
-      .out_valid_o    (binner_out_valid)
+      .out_valid_o    (binner_out_valid),
+      .out_busy_o     (binner_busy)
   );
 
   // Binner -> raster FIFOs
-  triangle_t binner_raster_out_data      [NUM_BINS_X * NUM_BINS_Y];
-  logic      binner_raster_out_data_valid[NUM_BINS_X * NUM_BINS_Y];
+  triangle_t                          binner_raster_out_data      [NUM_BINS_X * NUM_BINS_Y];
+  logic                               binner_raster_out_data_valid[NUM_BINS_X * NUM_BINS_Y];
+  logic [NUM_BINS_X * NUM_BINS_Y-1:0] binner_raster_empty;
+  logic                               binner_raster_out_ready     [NUM_BINS_X * NUM_BINS_Y];
 
-  logic      binner_raster_out_ready     [NUM_BINS_X * NUM_BINS_Y];
-
+  //`define BINNER_RASTER_FIFOS
+  `ifdef BINNER_RASTER_FIFOS
   genvar binner_raster_x, binner_raster_y;
   generate
     for (
@@ -135,7 +143,7 @@ module gpu (
             .rst_i          (rst_i),
 
             .rd_en_i        (binner_raster_out_ready[binner_raster_x*NUM_BINS_Y+binner_raster_y]),
-            .empty_o        (),
+            .empty_o        (binner_raster_empty[binner_raster_x*NUM_BINS_Y+binner_raster_y]),
             .rd_data_o      (binner_raster_out_data[binner_raster_x*NUM_BINS_Y+binner_raster_y]),
             .rd_data_valid_o(
                 binner_raster_out_data_valid[binner_raster_x * NUM_BINS_Y + binner_raster_y]
@@ -151,6 +159,28 @@ module gpu (
       end
     end
   endgenerate
+  `else
+  // If FIFOs are disabled, connect directly
+  genvar direct_binner_raster_x, direct_binner_raster_y;
+  generate
+    for (
+        direct_binner_raster_x = 0; direct_binner_raster_x < NUM_BINS_X; direct_binner_raster_x++
+    ) begin : gen_direct_binner_raster_fifos_x
+      for (
+          direct_binner_raster_y = 0; direct_binner_raster_y < NUM_BINS_Y; direct_binner_raster_y++
+      ) begin : gen_direct_binner_raster_fifos_y
+        assign binner_raster_out_data[direct_binner_raster_x*NUM_BINS_Y+direct_binner_raster_y] =
+          binner_out_data;
+        assign binner_raster_out_data_valid[direct_binner_raster_x*NUM_BINS_Y+direct_binner_raster_y] =
+          binner_out_valid[direct_binner_raster_x][direct_binner_raster_y];
+        assign binner_out_ready[direct_binner_raster_x][direct_binner_raster_y] =
+          binner_raster_out_ready[direct_binner_raster_x*NUM_BINS_Y+direct_binner_raster_y];
+        assign binner_raster_empty[direct_binner_raster_x*NUM_BINS_Y+direct_binner_raster_y] =
+          !binner_out_valid[direct_binner_raster_x][direct_binner_raster_y];
+      end
+    end
+  endgenerate
+  `endif // BINNER_RASTER_FIFOS
 
   // Initial attribute calculator to be shared among raster units
   // TODO: If DSPs permit, could have multiple of these
@@ -183,9 +213,10 @@ module gpu (
   );
 
   // Raster units
-  logic      raster_frag_out_ready[NUM_BINS_X * NUM_BINS_Y];
-  logic      raster_frag_out_valid[NUM_BINS_X * NUM_BINS_Y];
-  fragment_t raster_frag_out_data [NUM_BINS_X * NUM_BINS_Y];
+  logic                               raster_frag_out_ready[NUM_BINS_X * NUM_BINS_Y];
+  logic                               raster_frag_out_valid[NUM_BINS_X * NUM_BINS_Y];
+  fragment_t                          raster_frag_out_data [NUM_BINS_X * NUM_BINS_Y];
+  logic [NUM_BINS_X * NUM_BINS_Y-1:0] raster_busy;
 
   genvar bx, by;
   generate
@@ -216,7 +247,8 @@ module gpu (
             // Output iface (to aggregator)
             .out_ready_i(raster_frag_out_ready[bx*NUM_BINS_Y+by]),
             .out_data_o (raster_frag_out_data[bx*NUM_BINS_Y+by]),
-            .out_valid_o(raster_frag_out_valid[bx*NUM_BINS_Y+by])
+            .out_valid_o(raster_frag_out_valid[bx*NUM_BINS_Y+by]),
+            .out_busy_o (raster_busy[bx*NUM_BINS_Y+by])
         );
 
       end
@@ -224,9 +256,10 @@ module gpu (
   endgenerate
 
   // Raster -> Fragment shader
-  logic          frag_out_ready[NUM_BINS_X * NUM_BINS_Y];
-  logic          frag_out_valid[NUM_BINS_X * NUM_BINS_Y];
-  pixel_buffer_t frag_out_data [NUM_BINS_X * NUM_BINS_Y];
+  logic                               frag_out_ready[NUM_BINS_X * NUM_BINS_Y];
+  logic                               frag_out_valid[NUM_BINS_X * NUM_BINS_Y];
+  pixel_buffer_t                      frag_out_data [NUM_BINS_X * NUM_BINS_Y];
+  logic [NUM_BINS_X * NUM_BINS_Y-1:0] frag_busy;
 
   genvar fx, fy;
   generate
@@ -244,17 +277,18 @@ module gpu (
             // output streaming iface
             .out_ready_i(frag_out_ready[fx*NUM_BINS_Y+fy]),
             .out_data_o (frag_out_data[fx*NUM_BINS_Y+fy]),
-            .out_valid_o(frag_out_valid[fx*NUM_BINS_Y+fy])
+            .out_valid_o(frag_out_valid[fx*NUM_BINS_Y+fy]),
+            .out_busy_o (frag_busy[fx*NUM_BINS_Y+fy])
         );
       end
     end
   endgenerate
 
     // Fragment -> aggregator FIFOs
-  pixel_buffer_t fragment_aggregator_out_data      [NUM_BINS_X * NUM_BINS_Y];
-  logic          fragment_aggregator_out_data_valid[NUM_BINS_X * NUM_BINS_Y];
-
-  logic          fragment_aggregator_out_ready     [NUM_BINS_X * NUM_BINS_Y];
+  pixel_buffer_t                      fragment_aggregator_out_data      [NUM_BINS_X * NUM_BINS_Y];
+  logic                               fragment_aggregator_out_data_valid[NUM_BINS_X * NUM_BINS_Y];
+  logic [NUM_BINS_X * NUM_BINS_Y-1:0] fragment_aggregator_empty;
+  logic                               fragment_aggregator_out_ready     [NUM_BINS_X * NUM_BINS_Y];
 
   genvar fragment_aggregator_x, fragment_aggregator_y;
   generate
@@ -266,17 +300,16 @@ module gpu (
       ) begin : gen_fragment_aggregator_fifos_y
         // FIFO between binner and raster unit
         logic fragment_aggregator_full;
-        logic fragment_aggregator_empty;
 
         sync_fifo #(
             .T(pixel_buffer_t),
-            .DEPTH(256)  // TODO magic
+            .DEPTH(2048)  // TODO magic
         ) fragment_to_aggregator_fifo (
             .clk_i          (clk_i),
             .rst_i          (rst_i),
 
             .rd_en_i        (fragment_aggregator_out_ready[fragment_aggregator_x*NUM_BINS_Y+fragment_aggregator_y]),
-            .empty_o        (fragment_aggregator_empty),
+            .empty_o        (fragment_aggregator_empty[fragment_aggregator_x*NUM_BINS_Y+fragment_aggregator_y]),
             .rd_data_o      (fragment_aggregator_out_data[fragment_aggregator_x*NUM_BINS_Y+fragment_aggregator_y]),
             .rd_data_valid_o(),
 
@@ -287,7 +320,8 @@ module gpu (
 
         // Connect binner outputs to FIFO inputs
         assign frag_out_ready[fragment_aggregator_x * NUM_BINS_Y + fragment_aggregator_y] = !fragment_aggregator_full;
-        assign fragment_aggregator_out_data_valid[fragment_aggregator_x * NUM_BINS_Y + fragment_aggregator_y] = !fragment_aggregator_empty;
+        assign fragment_aggregator_out_data_valid[fragment_aggregator_x * NUM_BINS_Y + fragment_aggregator_y] = 
+          !fragment_aggregator_empty[fragment_aggregator_x * NUM_BINS_Y + fragment_aggregator_y];
       end
     end
   endgenerate
@@ -311,5 +345,61 @@ module gpu (
       .out_valid_o(out_valid_o)
   );
 
+  // Done signal generation
+  // Initially, done is low. When a command is received, we wait for all stages to be not busy, then pulse done high for one cycle.
+  typedef enum logic [1:0] {
+    IDLE,
+    BUSY,
+    DONE
+  } gpu_done_state_t;
+
+  gpu_done_state_t done_state, done_state_next;
+  always_ff @(posedge clk_i) begin
+    if (rst_i) begin
+      done_state <= IDLE;
+    end else begin
+      done_state <= done_state_next;
+    end
+  end
+
+  always_comb begin
+    // Default next state
+    done_state_next = done_state;
+    out_done_o      = 1'b0;
+
+    case (done_state)
+      IDLE: begin
+        // Wait for input valid to start processing
+        if (in_valid_i) begin
+          done_state_next = BUSY;
+        end
+      end
+
+      BUSY: begin
+        // Wait for all stages to be not busy
+        if (
+            !vs_busy &&
+            !binner_busy &&
+            (|raster_busy == 1'b0) && // All raster units not busy
+            (|frag_busy == 1'b0) &&   // All fragment shaders not busy
+            vs_binner_empty &&        // VS to binner FIFO empty
+            (&binner_raster_empty == 1'b1) &&       // Binner to raster FIFOs empty
+            (&fragment_aggregator_empty == 1'b1)    // Fragment to aggregator FIFOs empty
+        ) begin
+          done_state_next = DONE;
+        end
+      end
+
+      DONE: begin
+        // Pulse done signal for one cycle
+        out_done_o      = 1'b1;
+        done_state_next = IDLE;
+      end
+
+      default: begin
+        done_state_next = IDLE;
+      end
+    endcase
+  end
 
 endmodule

@@ -6,7 +6,7 @@
  *
  * Currently, the only command supported is to pass in a singular vertex through the registers. 
  * -----
- * Last Modified: Tuesday, 2nd December 2025 9:48 pm
+ * Last Modified: Sunday, 18th January 2026 10:16 pm
  * -----
  */
 
@@ -63,6 +63,9 @@ module gpu_top ( input  logic        clk,
   pixel_buffer_t out_data_o;
   logic          out_valid_o;
 
+  // Allow customisable base address
+  logic [17:0] base_address;
+
   // Input matrix set to identity for now
   initial begin
     for (int x = 0; x < 4; x++) begin
@@ -93,12 +96,13 @@ module gpu_top ( input  logic        clk,
   );
 
   // Input data handling
-  always_ff @ (posedge clk or posedge reset)
+  always_ff @ (posedge clk)
   begin
     if (reset)
     begin
       ack         <= 1'b0;
       in_valid_i    <= 1'b0;
+      base_address  <= 18'h00000;
     end
     else
     begin
@@ -131,6 +135,14 @@ module gpu_top ( input  logic        clk,
           ack       <= 1'b1;
           in_valid_i  <= 1'b0;
         end
+        // Command: Set base address
+        else if (r7 == 32'h00000002)
+        begin
+          base_address <= r0[17:0];
+
+          ack       <= 1'b1;
+          in_valid_i  <= 1'b0;
+        end
       end
       else
       begin
@@ -143,7 +155,7 @@ module gpu_top ( input  logic        clk,
   parameter int B = PIXEL_WIDTH / 8;
 
   // Output data handling
-  always_ff @ (posedge clk or posedge reset)
+  always_ff @ (posedge clk)
   begin
     if (reset)
     begin
@@ -155,7 +167,8 @@ module gpu_top ( input  logic        clk,
       if (out_valid_o && !de_req)
       begin
         // Latch output data
-        de_addr   <= (out_data_o.y * (SCREEN_WIDTH / PIXELS_PER_WORD)) + out_data_o.x;
+        // TODO: Could do & base_address instead of + here, but then base_address has to be aligned
+        de_addr   <= (out_data_o.y * (SCREEN_WIDTH / PIXELS_PER_WORD)) + out_data_o.x + base_address;
         for (int i = 0; i < PIXELS_PER_WORD; i++)
         begin
           if (out_data_o.valid_pixels[i])
